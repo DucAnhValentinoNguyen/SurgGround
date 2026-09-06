@@ -1,0 +1,42 @@
+# venv / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# runs / outputs / logs (never commit)
+runs/
+results/*
+!results/README.md
+*.log
+*.ckpt
+*.pt
+*.safetensors
+events.out.tfevents.*
+docs/figures/*.png
+!docs/figures/.gitkeep
+
+# data (never commit) — frames, shards, raw datasets, HF cache.
+# Anchored to repo root so the source package surgground/data/ is NOT ignored.
+/data/
+/frames/
+/hf_cache/
+/runs/
+*_shards/
+*.tar
+*.parquet
+
+# secrets
+.hf_token
+*.env
+scripts/env_4090.local.sh
+.aws/
+*secret*
+*credentials*
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store

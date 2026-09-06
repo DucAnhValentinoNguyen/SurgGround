@@ -10,6 +10,12 @@ LRZ used only for one optional 8B "hero" run and (optionally) V-JEPA
 pretraining. Every phase has a Definition of Done and a smoke test; do not
 proceed past a red one.
 
+> **Agents:** this file is the *technical spec*. Before working, read
+> **`CLAUDE.md`** (onboarding + rules + coordination), check **`docs/STATUS.md`**
+> (what is done / claimed / blocked — the source of truth for progress), and
+> skim **`docs/DECISIONS.md`** (settled decisions — do not re-litigate).
+> Run `bash scripts/agent_bootstrap.sh` first.
+
 ---
 
 ## 0. How to use this document (implementing agent, read first)
