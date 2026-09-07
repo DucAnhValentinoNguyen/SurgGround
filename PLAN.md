@@ -439,13 +439,13 @@ training/eval hot path.**
 | Artifact | Location | Size |
 |---|---|---|
 | GraSP frames (shipped ~1 fps) | NVMe `$FRAMES_ROOT/grasp` | ~40-90 GB |
-| MultiBypass140 frames (shipped 1 fps, all 140) | NVMe `$FRAMES_ROOT/mbp140` | ~120-160 GB |
+| MultiBypass140 frames @1fps (all 140) — **zips extracted then deleted** | NVMe `$FRAMES_ROOT/mbp140` | ~120-160 GB (+ ~250 GB transient during extract, per-zip) |
 | Cholec80 (+CholecT50 derives from it) + AutoLaparo frames @1fps | NVMe `$FRAMES_ROOT` | ~40 GB |
 | hi-fps zoom-window cache (LRU) | NVMe `$FRAMES_ROOT/_win` | cap 20 GB |
 | HF cache — InternVL3-2B only (8B stays `[LRZ]`) | HDD `$HF_HOME` | ~5 GB |
 | SFT WebDataset shards (frame refs) | HDD `$SHARDS_ROOT` | ~10 GB |
 | checkpoints + `runs/` + TB (keep 3) | HDD `$OUT_ROOT` | ~15 GB |
-| **NVMe subtotal** | | **~220-310 GB** — tight; if over: JPEG q85 @448px shorter side, and/or drop AutoLaparo-train locally |
+| **NVMe subtotal** | | **~220-310 GB** steady state — tight; extract MultiBypass140 **one zip at a time, deleting each** (peak +~50 GB, not +250); if still over: JPEG q85 @448px, and/or drop AutoLaparo-train locally |
 
 **`biostat` (eval/dev) — HDD `/` ~251 GB free, NAS `ra92miz` ~363 GB free:**
 | Artifact | Location | Size |
@@ -470,17 +470,19 @@ source of truth for GraSP + MultiBypass140 frames). Trained checkpoints move via
 | Dataset | Procedure (domain) | #vids | **avg / max length** | Annotations we use | Access | Native frames |
 |---|---|---|---|---|---|---|
 | **GraSP** (ext. of PSI-AVA) | robot-assisted radical **prostatectomy** (robotic) | 13 | **~149 min avg**, up to ~4 h | phases, steps, atomic actions (keyframe), (instrument seg — unused) | direct download, verify host/EULA in **[USER]** `BCV-Uniandes/TAPIR` | ships **sampled frames** (~1 fps) + JSON |
-| **MultiBypass140** | lap. **Roux-en-Y gastric bypass** (laparoscopic, 2 centers) | 140 | **Stras ~110 min**, Bern ~72 min | 12 phases, 46 steps, 5 IAE types + severity | CAMMA form **[USER]** | ships **frames @ 1 fps** + phase/step CSVs |
+| **MultiBypass140** | lap. **Roux-en-Y gastric bypass** (laparoscopic, 2 centers) | 140 | **Stras ~110 min**, Bern ~72 min | 12 phases, 46 steps, 5 IAE types + severity | **direct** — public S3, **no form** | ships **video zips** (5-6, `s3.unistra.fr/camma_public`); labels + per-center splits + `util/extract_frames.py` (1 fps) in the **repo** |
 | Cholec80 | lap. cholecystectomy | 80 | ~39 min | 7 phases @25fps; 7 tools @1fps | CAMMA form **[USER]** | video -> decode |
 | CholecT50 | (Cholec80 subset) | 50 | ~39 min | action triplets + frame ts | CAMMA form **[USER]** | shares Cholec80 |
 | AutoLaparo | lap. hysterectomy | 21 | ~66 min (max ~112) | 7 phases | site form **[USER]** | video -> decode |
 | HeiChole (**OOD only**) | lap. cholecystectomy | 24 | ~30-60 min | 7 phases, actions, skill | Synapse + EULA **[USER]** | video -> decode |
 
-**[USER] day 0:** submit all six registrations. GraSP is the fastest (direct
-download); MultiBypass140 + Cholec80 + CholecT50 are one CAMMA request.
-Meanwhile the agent builds P0-P3 on a public stand-in
-(`data/download/charades_sta.sh` / ActivityNet-Captions) so the grounding metric
-+ harness + regime router are exercised before surgical data lands.
+**[USER] day 0:** **GraSP** and **MultiBypass140** are direct downloads (no form).
+**AutoLaparo** is already granted (2026-04-24 email — Task 1 zip). Forms still
+needed: **Cholec80** + **CholecT50** (CAMMA / repo Google Forms) and **HeiChole**
+(Synapse `syn18824884` + data-use agreement). Meanwhile the agent builds P0-P3 on
+a public stand-in (`data/download/charades_sta.sh` / ActivityNet-Captions) so the
+grounding metric + harness + regime router are exercised before surgical data
+lands.
 
 ### Per-dataset notes
 - **GraSP** — robotic domain; visually distinct from the laparoscopic sets.
@@ -490,11 +492,18 @@ Meanwhile the agent builds P0-P3 on a public stand-in
   a documented ontology -> `procedure_graphs/grasp.json`. This is the headline
   2-hour benchmark; do **not** put GraSP videos in any train fold that is also
   evaluated.
-- **MultiBypass140** — provides 1 fps frames + `phase`/`step` label CSVs +
-  official **train/val/test folds per center**. Two eval axes: in-center and
-  **cross-center** (train Stras -> test Bern) — the multi-center generalization
-  story. IAE labels feed T7 (stretch). Long videos => the retrieval regime's
-  home turf. Build the 46-step precede graph from the paper's ontology figure.
+- **MultiBypass140** — **direct download, no form.** `git clone
+  github.com/CAMMA-public/MultiBypass140` (gets `labels/{bern,strasbourg}/...`
+  phase/step/IAE labels + official per-center train/val/test splits + `util/
+  extract_frames.py`), then `wget` the 5 video zips (`multibypass0{1_corrected,
+  2..5}.zip`) + `multibypass06_corrected.zip` (IAE labels) from
+  `https://s3.unistra.fr/camma_public/datasets/MultiBypass140/`. Unzip ->
+  `datasets/MultiBypass140/{BernBypass70,StrasBypass70}/videos`. Extract frames
+  @1fps with their `util/extract_frames.py` (wraps ffmpeg) **per zip, then delete
+  the zip** to bound peak disk (~250 GB video -> ~120-160 GB frames). Two eval
+  axes: in-center and **cross-center** (train Stras -> test Bern). IAE labels feed
+  T7 (stretch). Build the 46-step precede graph from the repo ontology / the
+  paper figure.
 - **Cholec80 / CholecT50** — standard 40/40 split (Twinanda), `val` = 8 from
   train by id; the **fast-iteration + short-regime control** + the
   phase-recognition literature anchor (target segmental F1@50 ~ 85-90). Triplet
@@ -505,17 +514,23 @@ Meanwhile the agent builds P0-P3 on a public stand-in
   different center/equipment -> the distribution-shift number.
 
 ### Frame decode (`data/decode.py`)
-- Datasets that ship frames (GraSP, MultiBypass140): **ingest as-is**, just build
-  the parquet index; do not re-decode.
-- Datasets that ship video (Cholec80, AutoLaparo, HeiChole):
-  `ffmpeg -i v.mp4 -vf "fps=1,scale='min(896,iw)':-2" -q:v 3 .../%06d.jpg`.
+- **GraSP** ships frames (~1 fps): ingest as-is, just build the parquet index.
+- Datasets that ship **video** (Cholec80, CholecT50=Cholec80 videos, AutoLaparo,
+  HeiChole, **MultiBypass140**): extract @1fps —
+  `ffmpeg -i v.mp4 -vf "fps=1,scale='min(896,iw)':-2" -q:v 3 .../%06d.jpg`
+  (for MultiBypass140 the repo's `util/extract_frames.py` does the same; either is
+  fine — normalize the output layout + parquet index). MultiBypass140: extract
+  then delete the source zip/video to bound disk.
 - Parquet index `$FRAMES_ROOT/<ds>/index.parquet`:
   `video_id, frame_idx, t_sec, path, width, height, center, domain, split`.
-- Hi-fps zoom windows: `extract_window(video_id, t0, t1, fps)` (only possible for
-  the video-shipped sets; for GraSP/MBP140 the zoom pass reuses the 1 fps frames
-  and just samples denser within the window) -> LRU cache, 30 GB cap.
+- Hi-fps zoom windows: `extract_window(video_id, t0, t1, fps)` — possible for the
+  video-shipped sets **while their source video is still on disk**. MultiBypass140
+  source is deleted after 1 fps extraction to save disk, so (like **GraSP**, which
+  is frames-only) its zoom pass reuses the 1 fps frames and samples denser within
+  the window; keep specific MBP140 videos if finer zoom is needed there. -> LRU
+  cache, 30 GB cap.
 - `smoke_decode.sh`: index 2 videos per source; assert row counts vs `ffprobe`
-  duration (video sets) or vs shipped frame count (frame sets) within +/-2.
+  duration (video sets) or vs shipped frame count (GraSP) within +/-2.
 
 ### Splits & leakage (`data/splits.py`)
 - All splits **by video id**; MultiBypass140 also **by center**.
@@ -716,8 +731,12 @@ ingested, indexed, split; procedure graphs written.
 `data/splits.py`; `procedure_graphs/*.json` (Appendix A); `data/download/charades_sta.sh`
 (stand-in).
 **Design.** Parsers normalize to seconds + a per-dataset phase/step vocabulary in
-`config/data/<ds>.yaml`. `decode.py` idempotent; frame-shipped datasets skip
-decode. GraSP: confirm sampled-frame fps, wire `step_timeline`.
+`config/data/<ds>.yaml`. `decode.py` idempotent; **GraSP** is the only
+frame-shipped set (skip decode, just index). **MultiBypass140**:
+`data/download/multibypass140.sh` = `git clone` the repo (labels + per-center
+splits + `util/extract_frames.py`) + `wget` the 5-6 S3 video zips; then extract
+@1fps **one zip at a time, deleting each zip** (disk bound). GraSP: confirm
+sampled-frame fps, wire `step_timeline`.
 **DoD.** `index.parquet` for GraSP + MultiBypass140 + >=1 Cholec set; split
 asserts pass; `phase_timeline` / `step_timeline` spot-checked against raw
 annotations for 5 videos per dataset (eyeball); `pytest tests/test_procedure_graph.py`.
@@ -1013,7 +1032,7 @@ code, `sbatch_*` + a `hardware:` config swap.
 | GraSP tiny (13 videos) -> high-variance grounding numbers | report per-video + video-level bootstrap CIs; treat GraSP as the *hard* headline, MultiBypass140 (140 videos) as the *statistically solid* long-video result |
 | GraSP robotic vs others laparoscopic (domain gap) | `domain` tag in every item; train with the tag; report GraSP and the lap sets separately; no naive pooling |
 | GraSP ships sampled frames, not video -> no true hi-fps zoom | zoom pass samples denser within the shipped 1 fps frames; boundary precision at tIoU 0.7 is inherently limited on GraSP and is stated as such |
-| MultiBypass140 raw ~250 GB | use the dataset's shipped 1 fps frames; only Cholec80/AutoLaparo/HeiChole need ffmpeg decode |
+| MultiBypass140 = ~250 GB of video zips (public S3, no form) | `git clone` repo for labels+splits; `wget` 5-6 zips; extract @1fps with `util/extract_frames.py` **one zip at a time, deleting each** -> ~120-160 GB frames; GraSP is the only frames-only set |
 | Offline RL reward hacking (lazy ABSTAIN, degenerate short outputs) | `-0.2` for abstaining on answerable items; TB watch on length / %ABSTAIN / %format-fail; RAFT top-p keeps only high-reward well-formed samples; DPO margin filter; early-stop on val regression |
 | tIoU zero-gradient when disjoint | Time-R1 disjoint shaping (negative reward ~ center distance) |
 | Slow HF-generate rollouts on the 4090 | cache vision+connector features per prompt across the G samples; vLLM if it builds; short `max_new_tokens`; T=32 for rollouts |
