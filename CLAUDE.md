@@ -75,17 +75,39 @@ decisions: **`docs/DECISIONS.md`**. Current progress: **`docs/STATUS.md`**.
 
 ---
 
+## Which machine am I on?  ( run: `hostname` )
+
+Two separate single-4090 boxes (see `docs/DECISIONS.md` ADR-014):
+
+- **`helena`** -> **TRAINING / critical path.** Run P1 decode, P4 SFT, P5
+  token-reduction sweep + retriever training, P7 offline-RL train rounds, P10.
+  Frames on the NVMe `/` (`$FRAMES_ROOT`); HF cache + shards + `runs/` on the HDD
+  `/home`.
+- **`biostat`** -> **EVAL / DEV / BASELINES / ABLATIONS / DEMO.** Run P0, P2, P3
+  baselines, P5 regime-eval matrix, P6, P7 rollout-generation + eval, P8, P9, P11.
+  Holds the LLaVA-Video-7B + Qwen2.5-VL-7B + judge weights.
+
+**One GPU job per box.** Never start a training run on `biostat` or a baseline
+sweep on `helena` without updating `docs/STATUS.md` first. **No cross-box
+distributed training** — each run stays on one box; the two boxes run different
+phases at the same time.
+
 ## Multi-agent coordination
 
-- **One GPU => at most one training/eval job at a time.** Non-GPU work (metric
-  modules, procedure graphs, dataset parsers, tests, docs) may run in parallel on
-  separate `feat/` branches.
-- `STATUS.md` has a **Phase ownership** table. Before working a phase, set its
-  row to `claimed by <session tag> @ <UTC timestamp>`. On stop, set it to `done`
-  (with evidence) or back to `open` (with a handoff note).
+- **One GPU job per box** (see above). Non-GPU work (metric modules, procedure
+  graphs, dataset parsers, tests, docs) may run in parallel on separate `feat/`
+  branches, on either box.
+- `STATUS.md` has a **Phase ownership** table with a **Box** column. Before
+  working a phase, set its row to `claimed by <session tag> on <box> @ <UTC>`. On
+  stop, set it to `done` (with evidence) or back to `open` (with a handoff note).
+- **Checkpoints move via `scripts/sync_checkpoints.sh` (HF Hub), never git.**
+  After a training phase/round on `helena`: `scripts/sync_checkpoints.sh push`.
+  Before eval on `biostat`: `scripts/sync_checkpoints.sh pull`. Frame-data
+  subsets move once via `rsync -e ssh` (`helena` is the source of truth for
+  GraSP + MultiBypass140 frames).
 - Shared files (`config/default.yaml`, `surgground/cfg.py`, `PLAN.md`,
-  `procedure_graphs/*`): rebase before touching, keep diffs minimal, mention it
-  in the handoff note.
+  `procedure_graphs/*`): `git pull` before touching, keep diffs minimal, mention
+  it in the handoff note.
 - If two agents need the same phase, the later one picks an unclaimed phase whose
   *Depends on* is met, or a non-GPU sub-task.
 
@@ -133,7 +155,9 @@ docs/
 scripts/
   agent_bootstrap.sh orient a fresh session (read-only)
   setup_env_4090.sh  one-time venv bootstrap (created in P0)
-  env_4090.sh        per-shell env vars for THIS box (created in P0)
+  env_4090.sh        per-shell env vars; case "$(hostname)" helena|biostat (created in P0)
+  env_4090.local.sh  (git-ignored) this box's real paths
+  sync_checkpoints.sh push|pull connector+LoRA <-> HF Hub (created in P4)
   run_*.sh           resumable job drivers (created in P4+)
 surgground/          the package (created from P0 on) — see PLAN.md section 5
 config/              OmegaConf yaml — see PLAN.md section 15
@@ -144,15 +168,19 @@ tests/               unit tests (no-GPU, CI) + smoke_*.sh (1-GPU)
 
 ---
 
-## Environment (RTX 4090 box)
+## Environment (either RTX 4090 box)
 
-- One-time: `bash scripts/setup_env_4090.sh` — creates `.venv` (uv, Python 3.10,
-  torch 2.5.1+cu121), installs the stack from `PLAN.md` section 6.1, prints a
-  capability report (`bnb 4-bit OK`, `flash-attn OK/absent`, GPU name + VRAM).
-- Per shell: `source scripts/env_4090.sh` — sets `DATA_ROOT` (big local NVMe),
-  `FRAMES_ROOT`, `SHARDS_ROOT`, `OUT_ROOT`, `HF_HOME`, alloc conf. Edit this file
-  once for this box's actual paths.
-- HF token: `~/.hf_token`.
+- One-time per box: `bash scripts/setup_env_4090.sh` — creates `.venv` (uv,
+  Python 3.10, torch 2.5.1+cu121), installs the stack from `PLAN.md` section 6.1,
+  prints a capability report (`bnb 4-bit OK`, `flash-attn OK/absent`, GPU name +
+  VRAM). Run it on **both** `helena` and `biostat`.
+- Per shell: `source scripts/env_4090.sh` — a `case "$(hostname)"` block sets
+  `DATA_ROOT` / `FRAMES_ROOT` / `SHARDS_ROOT` / `OUT_ROOT` / `HF_HOME` for this
+  box (helena: frames on NVMe `/`, the rest on HDD `/home`; biostat: all on HDD
+  `/`), then sources `scripts/env_4090.local.sh` if present for machine-specific
+  overrides. `config.hardware` = `rtx4090_helena` | `rtx4090_biostat`.
+- HF token: `~/.hf_token` (needs **write** scope on biostat for
+  `sync_checkpoints.sh`).
 - If `bitsandbytes` / `flash-attn` don't build: setup reports it and continues;
   fall back to fp16 InternVL3-2B (no 4-bit) at shorter context — still fits
   24 GB. The connector default is pure-PyTorch (no custom kernels).

@@ -28,10 +28,10 @@ docs/figures/*.png
 *.tar
 *.parquet
 
-# secrets
+# secrets / machine-local
 .hf_token
 *.env
-scripts/env_4090.local.sh
+scripts/*.local.sh
 .aws/
 *secret*
 *credentials*

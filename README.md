@@ -10,8 +10,8 @@ The technical spine is **fitting a 30-150 minute procedure into a small VLM at
 low token cost** (a trained temporal connector + STORM-style token reduction)
 and **localizing precisely inside it** (ReVisionLLM-style hierarchical
 coarse-to-fine + RGNet-style retrieval), then **post-training from verifiable
-rewards** (tIoU + procedure-order + abstention) — trained and served on **one
-RTX 4090 (24 GB)**.
+rewards** (tIoU + procedure-order + abstention) — trained and served on
+**consumer RTX 4090s (24 GB)**.
 
 Independent repo — its own venv (`.venv`), its own package (`surgground/`). No
 runtime dependency on any sibling project (`VLF_Zeiss`,
@@ -40,9 +40,12 @@ T7 (stretch) intra-operative adverse-event flagging.
 
 ## Hardware
 
-- **Primary:** one RTX 4090 (24 GB, Linux + CUDA). InternVL3-2B, QLoRA 4-bit,
-  gradient checkpointing, flash-attention-2, paged 8-bit optimizer, aggressive
-  token reduction. Every core phase is guaranteed to fit 24 GB.
+- **Primary:** two separate RTX 4090 boxes (24 GB each, Linux + CUDA) —
+  `helena` (NVMe, training critical path) + `biostat` (eval / dev / baselines /
+  ablations / demo), run concurrently (see `docs/DECISIONS.md` ADR-014).
+  InternVL3-2B, QLoRA 4-bit, gradient checkpointing, flash-attention-2, paged
+  8-bit optimizer, aggressive token reduction. Every core phase is guaranteed to
+  fit 24 GB. No cross-box distributed training.
 - **Optional burst (`[LRZ]`):** LRZ H100/A100 for one InternVL3-8B "hero" SFT
   run, online GRPO at scale, and faster V-JEPA pretraining. Identical code, a
   config/`sbatch` swap.

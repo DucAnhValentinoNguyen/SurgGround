@@ -150,3 +150,49 @@ session); `docs/DECISIONS.md` (this file) prevents re-litigation; `PLAN.md` is
 the spec; `scripts/agent_bootstrap.sh` orients a fresh session. Coordination
 model: one "driver" agent on the critical-path phase at a time; parallel agents
 only on independent non-GPU modules, claimed via the `STATUS.md` ownership table.
+*(Superseded by ADR-014 for the compute model: with two boxes, one driver agent
+per box runs different phases concurrently.)*
+
+## ADR-014 — Two RTX 4090 boxes: `helena` = train / `biostat` = eval, parallel, no cross-box DDP
+**Status:** accepted (2026-09-07)  ·  **Supersedes:** ADR-005 (one box), part of ADR-013 (coordination)
+**Context:** the user has **two** separate single-4090 Linux boxes on the same lab
+network. `helena` — root on a 456 GB NVMe (~308 GB free, fast frame I/O) + a
+1.8 TB HDD at `/home` (~250 GB free) + NAS `ra64ney` (331 GB free). `biostat` —
+root on a 1.8 TB HDD (~251 GB free) + NAS `ra92miz` (363 GB free); NAS `ra65vat`
+is ~87 % full, avoid. ~32 GB RAM each. NAS shares are CIFS/network — archival +
+backup only, never a data hot path.
+**Decision:**
+- **`helena` = primary TRAINING box.** Owns P1 decode of GraSP + MultiBypass140,
+  P4 SFT, P5 (token-reduction sweep + retriever training), P7 offline-RL train
+  rounds, P10. Frames on the NVMe `/` (`FRAMES_ROOT`); HF cache + shards + `runs/`
+  on the HDD `/home` (`HF_HOME`, `SHARDS_ROOT`, `OUT_ROOT`).
+- **`biostat` = parallel EVAL / DEV / BASELINE / ABLATION box.** Owns P0, P2, P3
+  (holds the LLaVA-Video-7B + Qwen2.5-VL-7B + judge weights), P5 regime-eval
+  matrix, P6, P7 round-`k+1` rollout generation + P7 eval, P8, P9, P11. Holds the
+  smaller sets (Cholec80 test / AutoLaparo / HeiChole) + a MultiBypass140
+  test-fold subset + GraSP frames + the stand-in data; raw tarballs + a
+  checkpoint mirror on NAS `ra92miz`.
+- **No cross-box distributed training.** Two machines, no NVLink, LAN only ->
+  DDP-over-TCP is slow and fragile at this size. Parallelism is across
+  runs/phases, **never within a run**. In P7, `biostat` generates round `k+1`
+  rollouts while `helena` trains round `k` (both load the same ckpt from HF Hub).
+- **Shared state:** code via **git** (`docs/STATUS.md` is the coordination point,
+  with a **Box** column; `pull` before work, `push` after). Trained checkpoints
+  (connector `.pt` + LoRA adapter dir, ~0.2-0.6 GB) via a **private HF Hub repo
+  `DucAnhValentinoNguyen/surgground-ckpts`** (versioned, tag `<phase>-<git-sha>`)
+  + `rsync -e ssh` between boxes for speed. Base model weights are downloaded
+  independently per box. Frame subsets are `rsync`'d **once** per box; never
+  served over CIFS.
+**Rejected:** primary + spare (slower, no concurrency gain); split-by-dataset
+(training needs all datasets -> mostly duplicates data); cross-box DDP; syncing
+checkpoints through git.
+**Consequences:** `config/default.yaml` `hardware:` enum becomes
+`rtx4090_helena | rtx4090_biostat | lrz_h100` (paths + which baseline weights to
+pre-cache differ). `scripts/env_4090.sh` switches on `$(hostname)` and sources a
+git-ignored `scripts/env_4090.local.sh`. `scripts/sync_checkpoints.sh`
+(`push|pull` latest connector+LoRA <-> HF Hub) is added in P4. `docs/STATUS.md`
+ownership table gains a **Box** column; B2 splits into B2a (helena) / B2b
+(biostat: also passwordless SSH both ways + create the private ckpt repo). The
+P9 efficiency/VRAM table may be measured on either box — both are equivalent
+24 GB 4090s; state this. Calendar: ~9-11 weeks (one card) -> **~7-9 weeks**
+because the eval-heavy middle runs on `biostat` while `helena` trains.

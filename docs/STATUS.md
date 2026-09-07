@@ -9,9 +9,26 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 - **Active phase:** P0 — not started
 - **Active branch:** — (none; next agent creates `feat/p00-scaffold`)
-- **Last updated:** 2026-09-06 by *planning session (LRZ, pre-implementation)*
-- **Overall:** repo has `PLAN.md` (rev 2), `README.md`, `CLAUDE.md`, `AGENTS.md`,
-  `docs/`. **No code yet.** First implementation step is P0 on the RTX 4090 box.
+- **Last updated:** 2026-09-07 by *planning session (pre-implementation)*
+- **Overall:** repo has `PLAN.md` (two-box rev), `README.md`, `CLAUDE.md`,
+  `AGENTS.md`, `docs/`. **No code yet.** First step is **P0 on `biostat`**; then
+  run `setup_env_4090.sh` on `helena` too.
+
+---
+
+## Machines (see `docs/DECISIONS.md` ADR-014)
+
+| Box | Root FS | Free | Other | Role |
+|---|---|---|---|---|
+| **helena** | `/dev/nvme0n1p3` 456 GB NVMe | **~308 GB** | HDD `/home` 1.8 TB (~250 GB free); NAS `ra64ney` (331 GB free); ~32 GB RAM | **TRAINING** critical path — P1 decode, P4 SFT, P5 sweep+retriever, P7 train rounds, P10 |
+| **biostat** | `/dev/sda1` 1.8 TB HDD | **~251 GB** | NAS `ra92miz` (**363 GB free**); NAS `ra65vat` ~87 % full (avoid); ~32 GB RAM | **EVAL / DEV** — P0, P2, P3 baselines, P5 regime-eval, P6, P7 rollout-gen + eval, P8, P9, P11 |
+
+Run one GPU job per box; the two boxes run different phases concurrently. **No
+cross-box distributed training.** Code syncs via git (`pull` before, `push`
+after; the Box column below is the lock). Trained checkpoints (connector `.pt` +
+LoRA adapter, ~0.2-0.6 GB) sync via `scripts/sync_checkpoints.sh` <-> private HF
+Hub repo `DucAnhValentinoNguyen/surgground-ckpts`. Frame subsets `rsync -e ssh`
+once (helena is source of truth for GraSP + MultiBypass140 frames).
 
 ---
 
@@ -20,7 +37,8 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 | # | Blocker | Owner | Since | Note |
 |---|---|---|---|---|
 | B1 | **Dataset access** — GraSP, MultiBypass140, Cholec80/CholecT50, AutoLaparo, HeiChole | USER | 2026-09-06 | Submit **all** registrations now. GraSP = direct download (fast). Cholec80 + CholecT50 + MultiBypass140 = one CAMMA form. AutoLaparo = site form. HeiChole = Synapse + EULA. Turnaround days. **P1 is blocked on these; P0 and P2/P3-on-stand-in are not.** |
-| B2 | **4090 box readiness** | USER | 2026-09-06 | Confirm: Linux + NVIDIA driver/CUDA version; `ffmpeg` present; free disk **>= ~350 GB** on the `DATA_ROOT` volume; `~/.hf_token` present. |
+| B2a | **helena readiness** | USER | 2026-09-07 | `nvidia-smi` confirms **24 GB RTX 4090** + driver/CUDA; `free -g` (if < 32 GB -> fewer dataloader workers); `ffmpeg -version`; NVMe `/` free **>= ~300 GB**; `~/.hf_token`; `uv` installed. |
+| B2b | **biostat readiness + cross-box** | USER | 2026-09-07 | Same GPU/ffmpeg/token checks; **passwordless SSH `helena` <-> `biostat` both ways**; HF Hub token with **write** scope; create the **private** repo `DucAnhValentinoNguyen/surgground-ckpts`. |
 | B3 | Public stand-in data | agent (P2) | 2026-09-06 | Download Charades-STA or ActivityNet-Captions (~few hundred MB) so grounding metrics + harness + regime router can be exercised before B1 clears. |
 
 ---
@@ -30,24 +48,46 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 `in review (PR #)` · `done (<sha>)`.
 
-| Phase | Status | Owner | Branch | DoD evidence / notes |
-|---|---|---|---|---|
-| **P0** Scaffold + env + config | open | — | — | Start here. Build repo skeleton (PLAN §5), `pyproject.toml` (PLAN §6.1), `scripts/setup_env_4090.sh` + `scripts/env_4090.sh`, `config/default.yaml` (PLAN §15), `surgground/cfg.py`, `tests/test_cfg.py`, `.gitignore`. DoD in PLAN P0. |
-| **P1** Data acquisition + decode + index | blocked (B1, B2) | — | — | GraSP + MultiBypass140 ship frames; Cholec80/AutoLaparo/HeiChole need ffmpeg decode. Write parsers + `splits.py` + `procedure_graphs/*.json` in parallel now (no data needed for the code). |
-| **P2** Task construction + metric modules | open (no GPU) | — | — | Can start once `surgground/cfg.py` exists (P0). Uses B3 stand-in. |
-| **P3** Zero-shot baseline harness | not started | — | — | **FIRST RESULTS.** Depends on P2. |
-| **P4** TemporalConnector + QLoRA SFT | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. |
-| **P5** Long-video regimes + H3 ablation | not started | — | — | Depends on P4. |
-| **P6** Procedure graph: constrained decode | not started | — | — | No GPU; parallelizable once P4 model-load path exists. |
-| **P7** Offline RL (RAFT / iterative DPO) | not started | — | — | **HIGH VARIANCE.** Depends on P4 (P6 recommended). |
-| **P8** Reliability & abstention analysis | not started | — | — | Depends on P4 (full story needs P7). |
-| **P9** OOD + length-bucketed + efficiency | not started | — | — | Depends on P5, P8. |
-| **P10** V-JEPA connector pretraining (optional) | not started | — | — | Depends on P4. Can burst to `[LRZ]`. |
-| **P11** Demo + report + deck | not started | — | — | Depends on P9. |
+| Phase | Box | Status | Owner | Branch | DoD evidence / notes |
+|---|---|---|---|---|---|
+| **P0** Scaffold + env + config | biostat | open | — | — | Start here. Repo skeleton (PLAN §5), `pyproject.toml` (§6.1), `scripts/setup_env_4090.sh` + `env_4090.sh` (hostname-switch) + `env_4090.local.sh`, `config/default.yaml` (§15, 3 `hardware:` presets), `surgground/cfg.py`, `tests/test_cfg.py`. Then also run `setup_env_4090.sh` on helena. DoD in PLAN P0. |
+| **P1** Data acquisition + decode + index | helena (parsers: biostat) | blocked (B1, B2a) | — | — | GraSP + MultiBypass140 ship frames; Cholec80/AutoLaparo/HeiChole need ffmpeg decode. **Parser code + `splits.py` + `procedure_graphs/*.json` can start now on biostat** (`feat/p01-parsers`, no data). After decode: `rsync` eval subsets helena->biostat. |
+| **P2** Task construction + metric modules | biostat | open (no GPU) | — | — | Start once `surgground/cfg.py` exists (P0). Uses B3 stand-in. |
+| **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
+| **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
+| **P5** Long-video regimes + H3 ablation | helena (sweep+retriever) + biostat (regime-eval) | not started | — | — | Depends on P4. biostat `sync_checkpoints.sh pull` before its eval matrix. |
+| **P6** Procedure graph: constrained decode | biostat | not started | — | — | No GPU; parallelizable once P4 model-load path exists. |
+| **P7** Offline RL (RAFT / iterative DPO) | helena (train rounds) + biostat (rollout gen + eval) | not started | — | — | **HIGH VARIANCE.** Depends on P4 (P6 recommended). biostat generates round k+1 rollouts while helena trains round k. |
+| **P8** Reliability & abstention analysis | biostat | not started | — | — | Depends on P4 (full story needs P7). |
+| **P9** OOD + length-bucketed + efficiency | biostat | not started | — | — | Depends on P5, P8. Efficiency/VRAM table measured on biostat's 4090 (equivalent to helena's). |
+| **P10** V-JEPA connector pretraining (optional) | helena | not started | — | — | Depends on P4. Can burst to `[LRZ]`. |
+| **P11** Demo + report + deck | biostat | not started | — | — | Depends on P9. |
 
 ---
 
 ## Handoff notes (newest first)
+
+### 2026-09-07 — two-box setup adopted (ADR-014)
+User has **two** single-4090 boxes: `helena` (NVMe, training) + `biostat` (HDD,
+eval/dev). `PLAN.md` §6.1/§6.3/§11/§13/§15 + phase headers updated for the split;
+`docs/DECISIONS.md` ADR-014; B2 -> B2a/B2b.
+
+**Next concrete actions:**
+1. **biostat agent:** `git clone`, `bash scripts/agent_bootstrap.sh`, branch
+   `feat/p00-scaffold`, implement **P0** per `PLAN.md` (skeleton + `pyproject.toml`
+   + `scripts/setup_env_4090.sh` + `scripts/env_4090.sh` with a
+   `case "$(hostname)"` block + `config/default.yaml` with the 3 `hardware:`
+   presets + `surgground/cfg.py` + `tests/test_cfg.py`). Run P0 DoD, paste
+   evidence, PR to `main`.
+2. **biostat agent (parallel, after cfg.py):** `feat/p01-parsers` — dataset
+   parsers + `data/splits.py` + `procedure_graphs/{cholec80,autolaparo,grasp,
+   multibypass140}.json` (finalize the MBP140 46-step + GraSP phase/step graphs
+   from the dataset papers). Pure code, no data.
+3. **helena agent:** once B2a clears, `bash scripts/setup_env_4090.sh`; wait on
+   B1 for P1 decode.
+4. **USER:** clear **B1** (all dataset registrations) + **B2a/B2b** (both
+   `nvidia-smi`, passwordless SSH both ways, HF write token, create private repo
+   `surgground-ckpts`).
 
 ### 2026-09-06 — planning session
 `PLAN.md` is complete at **rev 2** (2-hour-video focus; RTX 4090 primary; LRZ
@@ -81,3 +121,4 @@ from the dataset papers.
 | Date (UTC) | Change | Reason |
 |---|---|---|
 | 2026-09-06 | Initial dependency pins per `PLAN.md` section 6.1 (torch 2.5.1+cu121, transformers 4.49-4.52, peft, trl, bitsandbytes>=0.44, flash-attn>=2.6, ...) | project start |
+| 2026-09-07 | Two-box compute model (ADR-014); `hardware:` presets `rtx4090_helena`/`rtx4090_biostat`/`lrz_h100`; `env_4090.sh` hostname-switch | user has two separate 4090 boxes |

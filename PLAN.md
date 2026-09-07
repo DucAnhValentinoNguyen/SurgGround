@@ -341,6 +341,10 @@ SurgGround/
     setup_env_lrz.sh  job_env.sh  sbatch_sft_8b.sbatch  sbatch_grpo.sbatch  sbatch_jepa.sbatch  sbatch_eval.sbatch
   scripts/
     setup_env_4090.sh            # PRIMARY env bootstrap (Linux + CUDA, 24 GB)
+    env_4090.sh                  # per-shell vars; case "$(hostname)" helena|biostat; sources *.local.sh
+    env_4090.local.sh           # (git-ignored) this box's real DATA_ROOT etc.
+    sync_checkpoints.sh          # push|pull connector.pt + LoRA adapter <-> hf://<ckpt_hub_repo>  (P4)
+    agent_bootstrap.sh           # read-only session orientation
     run_sft.sh  run_rl_offline.sh  run_eval.sh   # thin drivers, resumable, nohup-friendly
   tests/
     test_cfg.py  test_tasks.py  test_procedure_graph.py  test_rewards.py
@@ -356,7 +360,19 @@ SurgGround/
 
 ## 6. Environment & infrastructure
 
-### 6.1 Primary: one RTX 4090 (24 GB), Linux + CUDA
+### 6.1 Primary: two RTX 4090 (24 GB each), Linux + CUDA — `helena` + `biostat`
+Two separate single-4090 boxes on the same lab network (see `docs/DECISIONS.md`
+ADR-014 for the full split):
+- **`helena`** = primary **training** box — root on a 456 GB NVMe (~308 GB free,
+  fast frame I/O) + a 1.8 TB HDD at `/home` (~250 GB free). Owns the critical
+  path: P1 decode of GraSP + MultiBypass140, P4 SFT, P7 offline RL, P10.
+- **`biostat`** = parallel **dev / eval / baseline / ablation** box — root on a
+  1.8 TB HDD (~251 GB free) + a 363 GB LRZ NAS share (archival only). Owns P2
+  metric/task modules, P3 baselines, P5 ablation sub-runs, P6, P8/P9 eval, P11.
+- ~32 GB RAM each -> keep dataloader workers modest, no whole-dataset RAM cache.
+- **No cross-box distributed training** (no NVLink, LAN-only). Parallelism is
+  across runs/phases, not within a run.
+
 `scripts/setup_env_4090.sh` — `uv venv --python 3.10`; then:
 
 ```
@@ -385,17 +401,25 @@ gradio>=4.44
 - `scripts/setup_env_4090.sh` prints a one-line capability report: `bnb 4-bit OK`,
   `flash-attn OK/absent`, `vllm OK/absent`, GPU name + VRAM.
 
-**Env vars** (`scripts/env_4090.sh`, sourced by the drivers):
-`SURGGROUND_ROOT`, `DATA_ROOT` (big local NVMe, see 6.3),
-`FRAMES_ROOT=$DATA_ROOT/frames`, `SHARDS_ROOT=$DATA_ROOT/sft_shards`,
-`OUT_ROOT=$SURGGROUND_ROOT/runs`, `HF_HOME=$DATA_ROOT/hf_cache`,
+**Env vars** (`scripts/env_4090.sh`; switches on `$(hostname)` and reads a
+git-ignored `scripts/env_4090.local.sh` for this box's real paths):
+`SURGGROUND_ROOT`, `DATA_ROOT`, `FRAMES_ROOT=$DATA_ROOT/frames`,
+`SHARDS_ROOT`, `OUT_ROOT`, `HF_HOME`,
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, `TOKENIZERS_PARALLELISM=false`,
-`HF_TOKEN` (from `~/.hf_token`).
+`HF_TOKEN` (from `~/.hf_token`). On `helena`: `FRAMES_ROOT` on the NVMe `/`,
+`OUT_ROOT`/`HF_HOME`/`SHARDS_ROOT` on the HDD `/home`.
 
-**Long-run discipline on a personal box:** every training entrypoint is
+**Long-run discipline (workstation, not a cluster):** every training entrypoint is
 resumable from `last.ckpt`; drivers run under `nohup ... &` writing
 `runs/<job>/train.log`; a `--max-hours` flag self-checkpoints and exits so the
 card can be reclaimed; TensorBoard on `--port` for remote monitoring.
+
+**Cross-box sync:** code via git (`STATUS.md` is the coordination point, with a
+Box column). Trained checkpoints (connector + LoRA adapters only, ~0.2-0.6 GB)
+via a **private HF Hub repo** `DucAnhValentinoNguyen/surgground-ckpts` (versioned)
+plus `rsync -e ssh` between boxes for speed. Base model weights downloaded per
+box. Frame data is **not** shared over the network — each box `rsync`s the subset
+it needs once. `scripts/sync_checkpoints.sh` (push/pull latest) is added in P4.
 
 ### 6.2 Optional burst: LRZ (H100/A100, SLURM)  `[LRZ]`
 Port `VLF_Zeiss/lrz/` verbatim: `job_env.sh` (exports + `wait_for_gpu` + HF-token
@@ -405,21 +429,38 @@ code parity), `sbatch_*` (`--gres=gpu:1 --time=12:00:00`, self-resubmit to a
 `sbatch_sft_8b` (InternVL3-8B hero), `sbatch_grpo` (online GRPO, H2/H1 at scale),
 `sbatch_jepa` (faster P10). Config is a size/flag swap — no code fork.
 
-### 6.3 Storage (personal box)
-| Artifact | Where | Size |
-|---|---|---|
-| GraSP (ships sampled frames + labels) | `$DATA_ROOT/raw/grasp` | ~40-90 GB |
-| MultiBypass140 frames @ 1 fps (dataset provides them) + labels | `$DATA_ROOT/raw/mbp140` | ~120-160 GB |
-| Cholec80 + CholecT50 + AutoLaparo videos -> frames @ 1 fps | `$FRAMES_ROOT` | ~45 GB |
-| HeiChole (OOD) frames @ 1 fps | `$FRAMES_ROOT/heichole` | ~20 GB |
-| hi-fps zoom-window cache (LRU) | `$FRAMES_ROOT/_win` | cap 30 GB |
-| SFT WebDataset shards (frame refs) | `$SHARDS_ROOT` | ~5-15 GB |
-| HF model cache (InternVL3-2B/8B + 2 baselines + judge) | `$HF_HOME` | ~50 GB |
-| checkpoints (connector + QLoRA, keep 3) + results + TB | `$OUT_ROOT` | ~10 GB |
-| **Total** | | **~330-420 GB** |
+### 6.3 Storage — per box
 
-If disk is < ~350 GB: take **GraSP + MultiBypass140 + Cholec80** only (drop
-AutoLaparo train, keep HeiChole OOD), frames JPEG q85 @ 448 shorter side.
+The full corpus (~330-420 GB) does not fit either box alone, so it is split by
+role. **NAS shares are CIFS/network — archival + backup only, never the
+training/eval hot path.**
+
+**`helena` (training) — NVMe `/` ~308 GB free, HDD `/home` ~250 GB free:**
+| Artifact | Location | Size |
+|---|---|---|
+| GraSP frames (shipped ~1 fps) | NVMe `$FRAMES_ROOT/grasp` | ~40-90 GB |
+| MultiBypass140 frames (shipped 1 fps, all 140) | NVMe `$FRAMES_ROOT/mbp140` | ~120-160 GB |
+| Cholec80 (+CholecT50 derives from it) + AutoLaparo frames @1fps | NVMe `$FRAMES_ROOT` | ~40 GB |
+| hi-fps zoom-window cache (LRU) | NVMe `$FRAMES_ROOT/_win` | cap 20 GB |
+| HF cache — InternVL3-2B only (8B stays `[LRZ]`) | HDD `$HF_HOME` | ~5 GB |
+| SFT WebDataset shards (frame refs) | HDD `$SHARDS_ROOT` | ~10 GB |
+| checkpoints + `runs/` + TB (keep 3) | HDD `$OUT_ROOT` | ~15 GB |
+| **NVMe subtotal** | | **~220-310 GB** — tight; if over: JPEG q85 @448px shorter side, and/or drop AutoLaparo-train locally |
+
+**`biostat` (eval/dev) — HDD `/` ~251 GB free, NAS `ra92miz` ~363 GB free:**
+| Artifact | Location | Size |
+|---|---|---|
+| GraSP frames (needed for eval) | HDD `$FRAMES_ROOT/grasp` | ~40-90 GB |
+| Cholec80 test + AutoLaparo + HeiChole (OOD) frames @1fps | HDD `$FRAMES_ROOT` | ~50 GB |
+| MultiBypass140 — **test-fold subset only** | HDD `$FRAMES_ROOT/mbp140` | ~30-50 GB |
+| HF cache — LLaVA-Video-7B + Qwen2.5-VL-7B + judge Qwen2.5-7B + InternVL3-2B | HDD `$HF_HOME` | ~50 GB |
+| stand-in data (Charades-STA / ActivityNet-Captions) | NAS or HDD | ~15 GB |
+| raw dataset tarball archive + checkpoint backup mirror | **NAS `ra92miz`** | as available |
+| **HDD subtotal** | | **~185-255 GB** — fits ~251; push stand-in + raw archives to NAS if tight |
+
+Frame subsets are moved **once** per box with `rsync -e ssh` (helena is the
+source of truth for GraSP + MultiBypass140 frames). Trained checkpoints move via
+`scripts/sync_checkpoints.sh` (HF Hub) — see 6.1.
 
 ---
 
@@ -641,26 +682,31 @@ efficiency table).
 
 ## 10. Phased plan
 
-Legend: **DoD** must be green to merge. Effort = calendar-days for one engineer
-with **one RTX 4090 running continuously**.
+Legend: **DoD** must be green to merge. Effort = calendar-days. Box assignment
+(helena = training, biostat = eval/dev) is in `docs/STATUS.md` and section 11;
+where a phase splits across boxes it is noted in the phase block.
 
 ---
 
-### P0 — Scaffold, env, config  ·  0.5-1 d  ·  depends on: nothing
+### P0 — Scaffold, env, config  ·  0.5-1 d  ·  box: biostat  ·  depends on: nothing
 **Goal.** Importable package; pinned 4090 venv with a capability report; config
-system; CI (no-GPU tests) green.
+system; CI (no-GPU tests) green. Run on biostat; then run
+`setup_env_4090.sh` on helena too so both boxes are ready.
 **Files.** repo tree (typed stub modules + docstrings + `NotImplementedError`);
-`pyproject.toml`; `scripts/setup_env_4090.sh` + `scripts/env_4090.sh`;
-`lrz/setup_env_lrz.sh` + `lrz/job_env.sh`; `config/default.yaml` (section 15);
-`surgground/cfg.py`; `tests/test_cfg.py`; `.gitignore` (`.venv/`, `runs/`,
-`results/*` except README, `*.tfstate*`, `__pycache__/`, `*.log`).
+`pyproject.toml`; `scripts/setup_env_4090.sh`; `scripts/env_4090.sh` (must
+`case "$(hostname)" in helena) ... ;; biostat) ... ;; esac` and `source`
+`scripts/env_4090.local.sh` if present); `lrz/setup_env_lrz.sh` +
+`lrz/job_env.sh`; `config/default.yaml` (section 15, with the three `hardware:`
+presets); `surgground/cfg.py`; `tests/test_cfg.py`; `.gitignore` (already in the
+repo — verify it covers `.venv/`, `runs/`, `results/*` except README,
+`scripts/*.local.sh`, `__pycache__/`, `*.log`, `*.ckpt`).
 **DoD.** `bash scripts/setup_env_4090.sh` completes; capability report shows
 `bnb 4-bit OK` + GPU = RTX 4090 24 GB; `python -c "import surgground"`;
 `python -m surgground.eval.run_eval --help`; `pytest tests/test_cfg.py`; `ruff` clean.
 
 ---
 
-### P1 — Data acquisition, decode, index  ·  2-3 d (+ registration wait)  ·  depends on: P0
+### P1 — Data acquisition, decode, index  ·  2-3 d (+ registration wait)  ·  box: helena (parsers: biostat)  ·  depends on: P0
 **Goal.** GraSP + MultiBypass140 (+ Cholec80/CholecT50/AutoLaparo as available)
 ingested, indexed, split; procedure graphs written.
 **Files.** `data/download/*.sh` + `MANIFEST.md`; `data/decode.py`; parsers
@@ -679,7 +725,7 @@ annotations for 5 videos per dataset (eyeball); `pytest tests/test_procedure_gra
 
 ---
 
-### P2 — Task construction + metric modules  ·  3-4 d  ·  depends on: P1 (stand-in ok)
+### P2 — Task construction + metric modules  ·  3-4 d  ·  box: biostat  ·  depends on: P1 (stand-in ok)
 **Goal.** T1-T6 items generated + packed; `regime.py` router; all metrics
 implemented + unit-tested (no model).
 **Files.** `data/tasks.py`, `data/templates.py`, `data/qa_synth.py` (+ committed
@@ -700,7 +746,7 @@ dataset produces shards + a type histogram; `aggregate.py` turns two fake
 
 ---
 
-### P3 — Zero-shot baseline harness  ·  2-3 d  ·  depends on: P2  ·  **FIRST RESULTS**
+### P3 — Zero-shot baseline harness  ·  2-3 d  ·  box: biostat  ·  depends on: P2  ·  **FIRST RESULTS**
 **Goal.** >=2 open video-LLMs zero-shot through T1/T2/T5 in **both regimes**; the
 baseline table + the long-video gap.
 **Files.** `models/base.py` (load backend, `.generate_grounding/.generate_qa/.list_phases`),
@@ -720,14 +766,19 @@ dict + written JSON.
 
 ---
 
-### P4 — TemporalConnector + QLoRA SFT (on the 4090)  ·  4-6 d  ·  depends on: P3  ·  **COMPLETE RESULT**
+### P4 — TemporalConnector + QLoRA SFT  ·  4-6 d  ·  box: helena  ·  depends on: P3  ·  **COMPLETE RESULT**
 **Goal.** Insert the connector, QLoRA-SFT InternVL3-2B, beat best zero-shot by
 >=10 pt R@1@0.5 on Cholec80 and get a real GraSP number (>=0.15 mIoU, hier
 regime).
 **Files.** `models/temporal_connector.py`, `models/heads.py`, finished
 `models/base.py` + `models/backbones/internvl.py` (connector insertion + freeze +
 QLoRA), `train/sft.py` (Lightning, 24 GB recipe), `config/train/sft.yaml`,
-`scripts/run_sft.sh`, `tests/test_temporal_connector.py`.
+`scripts/run_sft.sh`, `scripts/sync_checkpoints.sh` (`push|pull` the connector
+`.pt` + LoRA adapter dir to/from `hf://${cfg.ckpt_hub_repo}`, tagged
+`<phase>-<git-sha>`), `tests/test_temporal_connector.py`.
+**Cross-box.** After each SFT run, `scripts/sync_checkpoints.sh push`; biostat
+does `pull` before P5-eval. Base InternVL3-2B weights are downloaded
+independently on each box.
 **Design.**
 - `TemporalConnector(d_model, n_layers=6, kind="transformer"|"mamba",
   temporal_stride=1, spatial_pool=2, max_seconds=16000)`: `(B,T,N,D)` + `t_sec` ->
@@ -767,7 +818,7 @@ finite+decreasing, connector std > 0.02, peak VRAM logged, ckpt written,
 
 ---
 
-### P5 — Long-video regimes + H3 ablation  ·  3-4 d  ·  depends on: P4
+### P5 — Long-video regimes + H3 ablation  ·  3-4 d  ·  box: helena (sweep+retriever train) + biostat (regime-eval matrix)  ·  depends on: P4
 **Goal.** Hierarchy + retrieval as first-class inference; the H3 length-bucketed
 table.
 **Files.** finished `infer/recursive_infer.py`, `models/recursive.py`,
@@ -794,7 +845,7 @@ terminates within depth 3.
 
 ---
 
-### P6 — Procedure graph: constrained decode + order metric  ·  1-2 d  ·  depends on: P4
+### P6 — Procedure graph: constrained decode + order metric  ·  1-2 d  ·  box: biostat  ·  depends on: P4
 **Goal.** Make temporally-impossible phase/step lists unrepresentable; measure
 (H2).
 **Files.** finished `models/procedure_graph.py` (`from_json`, `precede_matrix`,
@@ -811,7 +862,7 @@ phase/step **list**: after label `k`, mask any `j` that hard-precedes `k`.
 
 ---
 
-### P7 — Offline RL from verifiable rewards  ·  4-6 d  ·  depends on: P4 (P6 recommended)  ·  HIGH VARIANCE
+### P7 — Offline RL from verifiable rewards  ·  4-6 d  ·  box: helena (train rounds) + biostat (rollout gen + eval)  ·  depends on: P4 (P6 recommended)  ·  HIGH VARIANCE
 **Goal.** RL without a second model in memory; deliver H1 and the H2 reward-side
 result. **Runs on the 4090.**
 **Files.** `train/rl_offline.py` (default), `train/rewards.py`,
@@ -850,7 +901,7 @@ rewards computed, top-p selection non-empty, one training pass, ckpt written.
 
 ---
 
-### P8 — Reliability & abstention analysis  ·  2 d  ·  depends on: P4 (P7 for the full story)
+### P8 — Reliability & abstention analysis  ·  2 d  ·  box: biostat  ·  depends on: P4 (P7 for the full story)
 **Goal.** The reliability half: calibration + risk-coverage + abstention across
 SFT vs offline-RL vs +graph, in-domain vs OOD, by length bucket.
 **Files.** `infer/confidence.py`, finished `eval/reliability.py`,
@@ -866,7 +917,7 @@ known ECE/AURC (fixture in the test).
 
 ---
 
-### P9 — OOD + length-bucketed generalization + efficiency  ·  2 d  ·  depends on: P5, P8
+### P9 — OOD + length-bucketed generalization + efficiency  ·  2 d  ·  box: biostat  ·  depends on: P5, P8
 **Goal.** Honest generalization numbers + the final efficiency table.
 **Files.** `run_eval.py` on HeiChole (all), MultiBypass140 **cross-center** cell,
 GraSP test, AutoLaparo test; `eval/efficiency.py` final table; `aggregate.py`
@@ -881,7 +932,7 @@ column proves the 24 GB claim); no crash on the longest GraSP video.
 
 ---
 
-### P10 — (optional) V-JEPA connector pretraining  ·  3 d (4090) or ~1 d `[LRZ]`  ·  depends on: P4
+### P10 — (optional) V-JEPA connector pretraining  ·  3 d (helena) or ~1 d `[LRZ]`  ·  box: helena  ·  depends on: P4
 **Goal.** Extend the LeJEPA image work to video; H4 ablation.
 **Files.** `train/jepa_pretrain.py`, `config/train/jepa.yaml`,
 `scripts/` driver (+ `lrz/sbatch_jepa.sbatch`).
@@ -899,7 +950,7 @@ random-init compared on val R@1@0.5 + convergence speed; paragraph + curve in
 
 ---
 
-### P11 — Demo, report, deck  ·  2-3 d  ·  depends on: P9
+### P11 — Demo, report, deck  ·  2-3 d  ·  box: biostat  ·  depends on: P9
 **Goal.** Interview-ready artifacts.
 **Files.** `demo/app.py` (Gradio: pick a GraSP/MBP test video or upload a clip,
 type "when ...", get a highlighted span on a 2-hour scrubber + confidence +
@@ -915,27 +966,36 @@ on a 2-hour video; report compiles; deck exports.
 
 ## 11. Compute & storage budget
 
-### On one RTX 4090 (primary path), card running continuously
-| Phase | GPU-hours (4090) | wall-clock | storage delta |
-|---|---|---|---|
-| P0 | ~0 | 0.5-1 d | — |
-| P1 decode/index | ~0 (CPU, ~10-20 h) | 2-3 d | +180-260 GB |
-| P2 (+ ~4 h GPU for qa_synth) | ~4 | 3-4 d | +10 GB |
-| P3 baselines | ~25-40 | 2-3 d | +2 GB |
-| P4 SFT (InternVL3-2B QLoRA, 1-2 ep) + smokes | ~90-160 | 4-6 d | +3 GB |
-| P5 regimes + retriever + sweep | ~30-50 | 3-4 d | +1 GB |
-| P6 | ~4 | 1-2 d | — |
-| P7 offline RL (K=3 rounds, G=8) | ~50-90 | 4-6 d | +3 GB |
-| P8 | ~6 | 2 d | — |
-| P9 OOD + efficiency | ~20-35 | 2 d | +1 GB |
-| P10 (opt) V-JEPA | ~24-40 | 3 d | +1 GB |
-| P11 | ~3 | 2-3 d | — |
-| **Total** | **~280-470 GPU-h (~12-20 days of card time)** | **~8-11 weeks** | **~330-420 GB** |
+### Two RTX 4090 boxes running concurrently (see ADR-014)
 
-At 24/7 the card delivers ~24 GPU-h/day, so ~12-20 days of compute fits the
-calendar with slack for debugging. **If it runs slower than the calendar allows:**
-move P4 (one InternVL3-8B or 2B run) and P7-online to LRZ — the code is identical,
-only `sbatch_*` + a config swap.
+`helena` = training critical path; `biostat` = eval / baselines / ablations /
+demo. Each training run stays on one box (no cross-box DDP); the two boxes run
+different phases at the same time.
+
+| Phase | Box | GPU-hours (4090) | storage delta |
+|---|---|---|---|
+| P0 | biostat | ~0 | — |
+| P1 decode/index | **helena** | ~0 (CPU, ~10-20 h) | +180-260 GB (helena NVMe) |
+| P2 (+ ~4 h GPU for qa_synth) | biostat | ~4 | +10 GB |
+| P3 baselines | biostat | ~25-40 | +2 GB |
+| P4 SFT (InternVL3-2B QLoRA, 1-2 ep) + smokes | **helena** | ~90-160 | +3 GB |
+| P5 token-reduction sweep + retriever training | **helena** | ~15-25 | +1 GB |
+| P5 regime-eval matrix (H3 table) | biostat | ~15-25 | — |
+| P6 procedure graph | biostat | ~4 | — |
+| P7 offline RL — train rounds | **helena** | ~35-60 | +3 GB |
+| P7 offline RL — round k+1 rollout generation | biostat | ~15-30 | +2 GB |
+| P8 reliability eval | biostat | ~6 | — |
+| P9 OOD + efficiency | biostat | ~20-35 | +1 GB |
+| P10 (opt) V-JEPA | **helena** or `[LRZ]` | ~24-40 | +1 GB |
+| P11 demo + report | biostat | ~3 | — |
+| **helena total** | | **~165-285 GPU-h (~7-12 days card time)** | ~190-270 GB NVMe |
+| **biostat total** | | **~115-185 GPU-h (~5-8 days card time)** | ~140-210 GB HDD |
+
+Because the eval-heavy middle (P3, P5-eval, P6, P8, P9) runs on biostat **while**
+helena trains P4/P7, the calendar drops from ~9-11 weeks (single card) to
+**~7-9 weeks**. Critical path = helena's `P1 -> P4 -> P7`; biostat work fills the
+gaps. **If helena still overruns:** move one P4 run and P7-online to LRZ — same
+code, `sbatch_*` + a `hardware:` config swap.
 
 ### `[LRZ]` burst (optional)
 `sbatch_sft_8b` ~30-50 H100-h · `sbatch_grpo` ~50-100 H100-h · `sbatch_jepa`
@@ -964,21 +1024,24 @@ only `sbatch_*` + a config swap.
 
 ---
 
-## 13. Timeline / milestones (≈9-11 weeks, card running continuously)
+## 13. Timeline / milestones (≈7-9 weeks, two 4090s running concurrently)
 
-| Week | Phases | Interview-ready checkpoint |
-|---|---|---|
-| 1 | P0, P1 start, **all registrations** | scaffold + 4090 env with capability report |
-| 2 | P1, P2 (stand-in) | metrics + task construction + regime router, unit-tested |
-| 3 | P2, P3 | **baseline table** + the quantified long-video gap (GraSP zero-shot near floor) |
-| 4-5 | P4 | **SFT result on the 4090** — Cholec80 beats zero-shot; first real GraSP mIoU |
-| 6 | P5 | H3 length-bucketed table (compression vs hierarchy vs retrieval) |
-| 6-7 | P6, P7 start | procedure-graph consistency (H2) |
-| 7-8 | P7 | **offline-RL + abstention** result (H1) |
-| 8-9 | P8, P9 | reliability figures + OOD + cross-center + `>120 min` bucket |
-| 9-11 | P10 (opt), P11 | demo on a 2-hour video + report + deck |
+`H` = helena (training critical path), `B` = biostat (eval/dev), running in
+parallel.
 
-Any cut line after week 5 still yields a coherent story (P4 [+P5] [+P6] [+P8]).
+| Week | helena (`H`) | biostat (`B`) | Interview-ready checkpoint |
+|---|---|---|---|
+| 1 | P1 decode (once B1/B2a clear) | P0 scaffold + env; **user submits all registrations** | scaffold + both-box env capability reports |
+| 2 | P1 finish; rsync eval subsets to B | P2 tasks + metrics + regime router (stand-in), unit-tested; P1 parser code | metrics + task construction unit-tested |
+| 3 | (idle / help P4 prep) | P3 baselines | **baseline table** + quantified long-video gap |
+| 4-5 | **P4 SFT** | P6 procedure graph; P5 retriever-head prep; stand-in ablations | **SFT result** — Cholec80 beats zero-shot; first real GraSP mIoU |
+| 5-6 | P5 token-reduction sweep + retriever training | P5 regime-eval matrix (pull P4 ckpt) | H3 length-bucketed table |
+| 6-7 | **P7** offline-RL train rounds | P7 round k+1 rollout generation; P8 harness | procedure-graph consistency (H2) |
+| 7-8 | P10 (opt) or `[LRZ]` | **P7 eval** + P8 reliability + P9 OOD/cross-center/efficiency | **offline-RL + abstention** (H1); reliability + OOD |
+| 8-9 | (spare / 8B hero via `[LRZ]`) | P11 demo + report + deck | demo on a 2-hour video + report + deck |
+
+Critical path = `H`'s `P1 -> P4 -> P7`. Any cut line after week 5 still yields a
+coherent story (P4 [+P5] [+P6] [+P8]).
 
 ---
 
@@ -1000,13 +1063,16 @@ Any cut line after week 5 still yields a coherent story (P4 [+P5] [+P6] [+P8]).
 
 ```yaml
 seed: 0
-hardware: rtx4090            # rtx4090 | lrz_h100  (sets batch/precision defaults)
-paths:
+hardware: rtx4090_helena    # rtx4090_helena | rtx4090_biostat | lrz_h100
+                           # preset -> batch/precision defaults + which baseline
+                           # model ids to pre-cache (biostat caches the 7B + judge)
+paths:                      # all from env; scripts/env_4090.sh sets them per $(hostname)
   data_root:   ${oc.env:DATA_ROOT}
   frames_root: ${oc.env:FRAMES_ROOT}
   shards_root: ${oc.env:SHARDS_ROOT}
   out_root:    ${oc.env:OUT_ROOT}
   hf_home:     ${oc.env:HF_HOME}
+ckpt_hub_repo: DucAnhValentinoNguyen/surgground-ckpts   # private; connector+LoRA sync
 backend: internvl3_2b        # internvl3_2b | internvl3_8b | llava_video_7b | qwen25vl_7b
 model:
   internvl3_2b: { id: OpenGVLab/InternVL3-2B, dtype: bfloat16, load_4bit: true,  attn: flash_attention_2 }
