@@ -1,0 +1,11 @@
+# [LRZ] scale-up "hero" run. Identical code to internvl3_2b; size swap only.
+backend: internvl3_8b
+model:
+  id: OpenGVLab/InternVL3-8B
+  dtype: bfloat16
+  load_4bit: true
+  attn: flash_attention_2
+  vision_frozen: true
+  projector_frozen: true
+train_sft:
+  grad_accum: 8               # more VRAM on H100 -> larger effective batch

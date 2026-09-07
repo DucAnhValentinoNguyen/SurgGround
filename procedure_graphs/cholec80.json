@@ -1,0 +1,17 @@
+{
+  "dataset": "cholec80",
+  "phases": [
+    {"id": 1, "name": "Preparation"},
+    {"id": 2, "name": "CalotTriangleDissection"},
+    {"id": 3, "name": "ClippingAndCutting"},
+    {"id": 4, "name": "GallbladderDissection"},
+    {"id": 5, "name": "GallbladderPackaging"},
+    {"id": 6, "name": "CleaningAndCoagulation"},
+    {"id": 7, "name": "GallbladderRetraction"}
+  ],
+  "steps": [],
+  "hard_precede": [[1, 2], [2, 3], [3, 4], [4, 5]],
+  "soft_precede": [[5, 6], [6, 7], [5, 7]],
+  "mutually_exclusive_at_t": true,
+  "notes": "P5-P7 interleave/repeat in practice; only P1<P2<P3<P4<P5 is enforced."
+}

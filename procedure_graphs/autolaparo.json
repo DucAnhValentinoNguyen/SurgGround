@@ -1,0 +1,17 @@
+{
+  "dataset": "autolaparo",
+  "phases": [
+    {"id": 1, "name": "Preparation"},
+    {"id": 2, "name": "DividingLigamentAndPeritoneum"},
+    {"id": 3, "name": "DividingUterineVesselsAndLigament"},
+    {"id": 4, "name": "TransectingTheVagina"},
+    {"id": 5, "name": "SpecimenRemoval"},
+    {"id": 6, "name": "Suturing"},
+    {"id": 7, "name": "Washing"}
+  ],
+  "steps": [],
+  "hard_precede": [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]],
+  "soft_precede": [],
+  "mutually_exclusive_at_t": true,
+  "notes": "AutoLaparo phases are near-strictly sequential."
+}

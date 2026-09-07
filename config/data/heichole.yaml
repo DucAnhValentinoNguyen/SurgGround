@@ -1,0 +1,16 @@
+dataset: heichole
+domain: lap
+center: heidelberg
+role: ood_only                # NEVER in a train split. Distribution-shift number vs Cholec80.
+native: video                 # decode @1fps ; lives on biostat
+phase_ann_fps: 1              # verify the fps field in the annotation header (EndoVis 2019)
+phase_names:                  # 7 (same workflow family as Cholec80; keep separate vocab)
+  - Preparation
+  - CalotTriangleDissection
+  - ClippingAndCutting
+  - GallbladderDissection
+  - GallbladderPackaging
+  - CleaningCoagulation
+  - GallbladderRetraction
+phase_graph: procedure_graphs/cholec80.json   # reuse the cholecystectomy order
+split: { scheme: all_test }   # 24 videos, OOD test only

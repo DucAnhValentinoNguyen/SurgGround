@@ -7,12 +7,15 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 ## Snapshot
 
-- **Active phase:** P0 — not started
-- **Active branch:** — (none; next agent creates `feat/p00-scaffold`)
-- **Last updated:** 2026-09-07 by *planning session (pre-implementation)*
-- **Overall:** repo has `PLAN.md` (two-box rev), `README.md`, `CLAUDE.md`,
-  `AGENTS.md`, `docs/`. **No code yet.** First step is **P0 on `biostat`**; then
-  run `setup_env_4090.sh` on `helena` too.
+- **Active phases:** **P1 on helena** (data) ∥ **P2 on biostat** (tasks + metrics), in parallel
+- **Active branch:** `feat/p01-data` (helena) · `feat/p02-tasks-metrics` (biostat)
+- **Last updated:** 2026-09-07 — P0 scaffold pushed
+- **Overall:** **P0 done** — importable `surgground` package, `pyproject.toml`,
+  `config/`, env/setup/sync scripts, `lrz/` stubs, 4 procedure graphs, and
+  working implementations of the pure modules (cfg, procedure_graph, rewards,
+  regime, templates, grounding/phase/rsd/reliability metrics) with a green test
+  suite (~40 tests). Each box: clone -> `bash scripts/setup_env_4090.sh` ->
+  `docs/ONBOARDING.md`.
 
 ---
 
@@ -53,9 +56,9 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
-| **P0** Scaffold + env + config | biostat | open | — | — | Start here. Repo skeleton (PLAN §5), `pyproject.toml` (§6.1), `scripts/setup_env_4090.sh` + `env_4090.sh` (hostname-switch) + `env_4090.local.sh`, `config/default.yaml` (§15, 3 `hardware:` presets), `surgground/cfg.py`, `tests/test_cfg.py`. Then also run `setup_env_4090.sh` on helena. DoD in PLAN P0. |
-| **P1** Data acquisition + decode + index | helena (parsers: biostat) | blocked (B2a); data via `scripts/download/*` | — | — | Fetch scripts + `docs/DATASETS.md` EXIST. **GraSP** ships frames; the rest ship **video** -> extract @1fps (MBP140 via its `util/extract_frames.py`, per-zip + delete). **Parser code + `splits.py` + `procedure_graphs/*.json` can start now on biostat** (`feat/p01-parsers`, no data). After decode: `rsync` eval subsets helena->biostat. HeiChole -> biostat only (B1-HeiChole gate). |
-| **P2** Task construction + metric modules | biostat | open (no GPU) | — | — | Start once `surgground/cfg.py` exists (P0). Uses B3 stand-in. |
+| **P0** Scaffold + env + config | biostat | **done** (this commit) | planning session | `feat/p00-scaffold` -> `main` | 65 py files compile; `pytest -q` green (36 pass / 4 skip) on numpy+scipy+sklearn+omegaconf; `run_eval --help` works. Each box still runs `setup_env_4090.sh` + `pytest` to verify locally (P0 DoD). |
+| **P1** Data acquisition + decode + index | helena | **ready** (unblocked; do `setup_env_4090.sh` then `scripts/download/*`) | — | `feat/p01-data` | Stubs to fill: `surgground/data/{grasp,multibypass140,cholec80,cholect50,autolaparo,heichole}.py`, `decode.py`, `splits.py`; finalize `procedure_graphs/{grasp,multibypass140}.json` `_todo`. GraSP ships frames; rest ship video -> @1fps. `rsync` eval subsets to biostat after. |
+| **P2** Task construction + metric modules | biostat | **ready** (P0 done; use `charades_sta.sh` stand-in) | — | `feat/p02-tasks-metrics` | Stubs to fill: `data/tasks.py`, `shards.py`, `collate.py`, `qa_synth.py`; `eval/{detection,qa,summary,efficiency,aggregate}.py`. **Done already:** `eval/{grounding,phase,rsd,reliability}.py` + `data/{templates,regime}.py` + tests. |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
 | **P5** Long-video regimes + H3 ablation | helena (sweep+retriever) + biostat (regime-eval) | not started | — | — | Depends on P4. biostat `sync_checkpoints.sh pull` before its eval matrix. |
@@ -70,7 +73,26 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-07 (later) — dataset download kit added
+### 2026-09-07 (latest) — P0 scaffold pushed; agents can start
+Importable `surgground/` package with **working pure modules + green tests**
+(cfg, `models/procedure_graph`, `train/rewards`, `data/regime`, `data/templates`,
+`eval/{grounding,phase,rsd,reliability}`), plus config, env/setup/sync scripts,
+`lrz/` stubs, 4 procedure graphs. Everything else is typed `NotImplementedError`
+stubs matching PLAN §5. `docs/ONBOARDING.md` = the machine bring-up runbook.
+
+**Next:**
+- **helena agent** (`feat/p01-data`): run the `scripts/download/*` for the
+  training sets, then P1 — implement `surgground/data/{grasp,multibypass140,
+  cholec80,cholect50,autolaparo,heichole}.py` parsers + `decode.py` + `splits.py`,
+  finalize `procedure_graphs/{grasp,multibypass140}.json` (the `_todo` fields).
+- **biostat agent** (`feat/p02-tasks-metrics`): P2 — `data/tasks.py` +
+  `shards.py` + `collate.py`, and the remaining `eval/*` modules
+  (`detection`, `qa`, `summary`, `efficiency`, `aggregate`); grounding/phase/rsd/
+  reliability are already done. Stand-in: `scripts/download/charades_sta.sh`.
+- **USER**: HeiChole Synapse gate (B1-HeiChole) + CholecT50 unlock
+  (B1-CholecT50) + create the private HF repo `surgground-ckpts`.
+
+### 2026-09-07 (earlier) — dataset download kit added
 `scripts/download/{_common,cholec80,cholect50,multibypass140,grasp,autolaparo,heichole,charades_sta}.sh`
 + `docs/DATASETS.md`. Agents on helena/biostat download data **directly** (no
 laptop). Status: Cholec80 + MultiBypass140 = public S3 (no form); GraSP = Drive

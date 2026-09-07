@@ -1,0 +1,18 @@
+{
+  "dataset": "grasp",
+  "_todo": "P1: fill exact phase + step names (with parent_phase) from the GraSP/PSI-AVA ontology (arXiv:2401.11174). Below is a placeholder with only clinically-hard orderings for robot-assisted radical prostatectomy.",
+  "phases": [
+    {"id": 1, "name": "BladderNeckDissection"},
+    {"id": 2, "name": "SeminalVesicleDissection"},
+    {"id": 3, "name": "PosteriorDissection"},
+    {"id": 4, "name": "EndopelvicFasciaIncision"},
+    {"id": 5, "name": "ApicalDissection"},
+    {"id": 6, "name": "UrethralDivision"},
+    {"id": 7, "name": "PosteriorAnastomosis"},
+    {"id": 8, "name": "AnteriorAnastomosis"}
+  ],
+  "steps": [],
+  "hard_precede": [[2, 5], [3, 5], [6, 7], [7, 8]],
+  "soft_precede": [[1, 2], [4, 5]],
+  "mutually_exclusive_at_t": true
+}

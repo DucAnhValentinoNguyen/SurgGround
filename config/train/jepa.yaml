@@ -1,0 +1,12 @@
+# P10 (optional) — V-JEPA-style TemporalConnector pretraining on unlabeled surgical video.
+# LLM not involved -> ~4-6 GB VRAM. Output: temporal_connector_jepa.pt -> sft.connector_init.
+train_jepa:
+  clips: 100000
+  frames_per_clip: 64
+  mask_ratio: 0.6             # contiguous spatiotemporal blocks
+  ema_tau: [0.996, 1.0]
+  loss: smooth_l1            # latent-space target regression
+  vicreg_weight: 1.0        # variance/covariance anti-collapse (LeJEPA SIGReg intuition)
+  lr: 1.5e-4
+  epochs: 1
+  collapse_guard_std: 0.02

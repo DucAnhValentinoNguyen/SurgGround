@@ -28,6 +28,12 @@ and a clean write-up matter as much as raw scores.**
 
 Full technical spec: **`PLAN.md`** (12 phases, P0 -> P11). Settled design
 decisions: **`docs/DECISIONS.md`**. Current progress: **`docs/STATUS.md`**.
+Machine bring-up (first time on a box): **`docs/ONBOARDING.md`**.
+
+**P0 is done** — `surgground/` is importable, `pytest -q` is green, the pure
+modules (`cfg`, `models/procedure_graph`, `train/rewards`, `data/{templates,
+regime}`, `eval/{grounding,phase,rsd,reliability}`) are implemented with tests;
+everything else is typed `NotImplementedError` stubs matching `PLAN.md` section 5.
 
 ---
 

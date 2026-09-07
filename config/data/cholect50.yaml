@@ -1,0 +1,15 @@
+dataset: cholect50
+domain: lap
+center: strasbourg
+role: short_control          # action-triplet grounding (T1) + dense detection (T4)
+native: labels_only         # VIDEOS = the Cholec80 videos; this ships labels @1fps
+uses_videos_from: cholec80
+ann_fps: 1
+instrument_names: [grasper, bipolar, hook, scissors, clipper, irrigator]
+verb_names: [grasp, retract, dissect, coagulate, clip, cut, aspirate, irrigate, pack, null_verb]
+# 15 target names + 100 valid <instrument,verb,target> triplets -> take from the
+# CAMMA cholect50 repo dict/ files during P1 (parser: surgground/data/cholect50.py).
+n_targets: 15
+n_triplets: 100
+split: { scheme: rdv, ref: "arXiv:2204.05235" }   # official cross-val splits; by video id
+phase_graph: procedure_graphs/cholec80.json
