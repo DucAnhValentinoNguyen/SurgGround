@@ -1,0 +1,11 @@
+# [LRZ] optional — online GRPO at scale (adapter-toggle reference, no 2nd model copy).
+train_grpo_lrz:
+  init_from: sft
+  group_size: 8
+  lr: 1.0e-6
+  kl_beta: 0.04
+  max_new_tokens: 256
+  temperature: 1.0
+  prompts: 8000
+  reward_weights: { format: 1.0, tiou: 1.0, order: 0.5, abstain: 0.5 }
+  abstain_on_answerable_penalty: -0.2

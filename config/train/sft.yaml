@@ -1,0 +1,15 @@
+# P4 — QLoRA SFT of InternVL3-2B + trained TemporalConnector. Merge over default.yaml.
+train_sft:
+  epochs: 2
+  lr_connector: 1.0e-4
+  lr_lora: 2.0e-5
+  warmup_frac: 0.03
+  weight_decay: 0.05
+  grad_accum: 32
+  grad_clip: 1.0
+  think: true
+  max_hours: 11
+  tasks: [t1, t2, t3, t5]        # interleave grounding + phase/step + RSD + QA
+  connector_init: random         # or path to temporal_connector_jepa.pt (P10)
+  collapse_guard_std: 0.02       # assert connector output std > this after warmup
+  val_probe_every_steps: 500

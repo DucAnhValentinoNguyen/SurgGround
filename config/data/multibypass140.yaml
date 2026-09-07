@@ -1,0 +1,15 @@
+dataset: multibypass140
+domain: lap
+centers: [strasbourg, bern]   # StrasBypass70 (~110 min avg), BernBypass70 (~72 min)
+role: primary_long            # primary long-video + multi-center generalization
+native: video                 # scripts/download/multibypass140.sh -> util/extract_frames.py @1fps
+ann_fps: 1
+# 12 phases / 46 steps / 5 IAE types. FILL exact names in P1 from the cloned repo:
+#   labels/{bern,strasbourg}/labels_by70_splits/  +  the LRYGB ontology (arXiv:2312.11250).
+phase_names: TODO_P1           # 12
+step_names: TODO_P1            # 46 ; each -> parent_phase
+iae_types: TODO_P1            # 5 + severity 1..5
+phase_graph: procedure_graphs/multibypass140.json
+split:
+  scheme: official_per_center  # repo provides train/val/test folds per center
+  cross_center: [strasbourg -> bern]   # the generalization cell

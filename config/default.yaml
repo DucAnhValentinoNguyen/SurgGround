@@ -1,0 +1,89 @@
+# SurgGround central config (OmegaConf). Env vars override via ${oc.env:VAR,default}.
+# scripts/env_4090.sh exports DATA_ROOT / FRAMES_ROOT / SHARDS_ROOT / OUT_ROOT / HF_HOME
+# per $(hostname); lrz/job_env.sh does the same on the cluster. See PLAN.md section 15.
+
+seed: 0
+hardware: ${oc.env:SURGGROUND_HW,rtx4090_helena}   # rtx4090_helena | rtx4090_biostat | lrz_h100
+
+paths:
+  data_root:   ${oc.env:DATA_ROOT,./_data}
+  frames_root: ${oc.env:FRAMES_ROOT,${paths.data_root}/frames}
+  shards_root: ${oc.env:SHARDS_ROOT,${paths.data_root}/sft_shards}
+  out_root:    ${oc.env:OUT_ROOT,./runs}
+  hf_home:     ${oc.env:HF_HOME,${paths.data_root}/hf_cache}
+  results:     ${paths.out_root}/results
+
+ckpt_hub_repo: DucAnhValentinoNguyen/surgground-ckpts   # private; connector + LoRA sync
+
+backend: internvl3_2b        # internvl3_2b | internvl3_8b | llava_video_7b | qwen25vl_7b
+
+connector:
+  kind: transformer          # transformer | mamba
+  n_layers: 6
+  n_heads: 8
+  temporal_stride: 2         # STORM token reduction (default ON) ; eval sweep {1,2,4}
+  spatial_pool: 2            # {2, 4}
+  max_seconds: 16000
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  targets: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+data:
+  datasets_train: [grasp, multibypass140, cholec80, cholect50, autolaparo]
+  datasets_ood:   [heichole]
+  timestamp_format: seconds  # seconds | mmss
+  frames_short: 64
+  frames_coarse: 224
+  frames_zoom: 64
+  regime:
+    short_max_s: 2700        # < 45 min -> single-pass
+    retrieve_min_s: 7200     # >= 2 h -> prefer retrieval
+    retrieve_keywords: [instrument, tool, stapler, clip, grasper, scissors, hook, bipolar, needle, suction]
+  clip_curriculum: { warmup_frac: 0.3, warmup_max_window_s: 480 }
+  type_mix_train: { grounding: 0.45, phase_step: 0.20, rsd: 0.10, qa_summary_det: 0.25 }
+  qa_synth_model: Qwen/Qwen2.5-7B-Instruct
+
+train_sft:
+  epochs: 2
+  lr_connector: 1.0e-4
+  lr_lora: 2.0e-5
+  warmup_frac: 0.03
+  weight_decay: 0.05
+  grad_accum: 32             # bs 1 on the 4090
+  grad_clip: 1.0
+  think: true
+  max_hours: 11             # self-checkpoint + exit so the card can be reclaimed
+
+train_rl_offline:
+  mode: dpo                  # dpo | raft
+  rounds: 3
+  group_size: 8
+  gen_prompts: 8000
+  max_new_tokens: 256
+  temperature: 1.0
+  raft_top_p: 0.25
+  dpo_beta: 0.1
+  reward_weights: { format: 1.0, tiou: 1.0, order: 0.5, abstain: 0.5 }
+  abstain_on_answerable_penalty: -0.2
+
+train_grpo_lrz:             # [LRZ] only
+  group_size: 8
+  lr: 1.0e-6
+  kl_beta: 0.04
+
+infer:
+  regime: auto              # auto | short | hier | retrieve
+  frames: 32
+  elicit_confidence: true
+  constrain_decode: true
+  recursive: { max_depth: 3, min_window_s: 30, pad_s: 45 }
+  retrieve:  { clip_s: 30, stride_s: 15, top_k: 5 }
+
+eval:
+  tiou_thresholds: [0.3, 0.5, 0.7]
+  length_buckets_min: [30, 60, 120]
+  bootstrap: 1000
+  judge_model: Qwen/Qwen2.5-7B-Instruct

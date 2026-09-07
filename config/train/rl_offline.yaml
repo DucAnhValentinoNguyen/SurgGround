@@ -1,0 +1,18 @@
+# P7 (default) — offline RL from verifiable rewards (RAFT / iterative DPO). Fits 24 GB.
+train_rl_offline:
+  init_from: sft                 # start from the P4 SFT checkpoint
+  mode: dpo                      # dpo | raft
+  rounds: 3
+  group_size: 8
+  gen_prompts: 8000             # mix answerable + unanswerable + contradiction
+  max_new_tokens: 256
+  temperature: 1.0
+  top_p: 1.0
+  raft_top_p: 0.25             # RAFT: keep top fraction by reward per prompt
+  dpo_beta: 0.1
+  dpo_margin: 0.2              # require R_best - R_worst >= this
+  reward_weights: { format: 1.0, tiou: 1.0, order: 0.5, abstain: 0.5 }
+  abstain_on_answerable_penalty: -0.2
+  h1_control_arm: false        # true -> w.abstain=0 AND r_tiou=0 on unanswerable
+  early_stop_val_r1_drop: 5.0  # pts below SFT for 2 evals -> stop the round
+  use_vllm_rollouts: true      # if [vllm] built; else HF generate

@@ -1,0 +1,13 @@
+dataset: grasp
+domain: robotic                # da Vinci — visually distinct from the laparoscopic sets
+center: uniandes
+role: primary_long_headline   # 13 videos, ~149 min avg (up to ~4 h). The hard headline.
+native: frames                # ships sampled frames (~1 fps) + JSON ; no re-decode
+ann_fps: 1                     # verify in P1 (phases/steps dense ; atomic actions ~1 keyframe/35 s)
+# FILL exact names in P1 from the GraSP repo ontology (arXiv:2401.11174):
+phase_names: TODO_P1
+step_names: TODO_P1           # each -> parent_phase
+atomic_action_names: TODO_P1
+phase_graph: procedure_graphs/grasp.json
+split: { scheme: by_video, train: 8, val: 2, test: 3 }   # tiny -> report per-video + bootstrap CIs
+never_pool_with: [cholec80, autolaparo, multibypass140, heichole, cholect50]   # domain tag; report separately

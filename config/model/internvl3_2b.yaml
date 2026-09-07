@@ -1,0 +1,11 @@
+# Primary modifiable backbone (RTX 4090). Merge over config/default.yaml.
+backend: internvl3_2b
+model:
+  id: OpenGVLab/InternVL3-2B
+  dtype: bfloat16
+  load_4bit: true
+  attn: flash_attention_2      # falls back to sdpa if flash-attn absent
+  # InternViT-300M -> pixel-shuffle -> MLP projector -> Qwen2.5-1.5B-Instruct.
+  # Connector spliced after the frozen projector, before scatter into inputs_embeds.
+  vision_frozen: true
+  projector_frozen: true

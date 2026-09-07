@@ -1,0 +1,19 @@
+dataset: cholec80
+domain: lap
+center: strasbourg
+role: short_control          # fast-iteration + short-regime control + phase-recognition anchor
+native: video               # scripts/download/cholec80.sh -> decode @1fps
+video_fps: 25
+phase_ann_fps: 25
+tool_ann_fps: 1
+phase_names:                 # id = index + 1
+  - Preparation
+  - CalotTriangleDissection
+  - ClippingAndCutting
+  - GallbladderDissection
+  - GallbladderPackaging
+  - CleaningAndCoagulation
+  - GallbladderRetraction
+tool_names: [Grasper, Bipolar, Hook, Scissors, Clipper, Irrigator, SpecimenBag]
+phase_graph: procedure_graphs/cholec80.json
+split: { scheme: twinanda_40_40, val_from_train: 8 }   # by video id

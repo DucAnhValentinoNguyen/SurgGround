@@ -1,0 +1,17 @@
+dataset: autolaparo
+domain: lap
+center: cuhk
+role: short_control          # 2nd short/medium laparoscopic set; near-sequential phases
+native: video               # Task 1 zip -> decode @1fps
+phase_ann_fps: 1
+phase_names:
+  - Preparation
+  - DividingLigamentAndPeritoneum
+  - DividingUterineVesselsAndLigament
+  - TransectingTheVagina
+  - SpecimenRemoval
+  - Suturing
+  - Washing
+phase_graph: procedure_graphs/autolaparo.json
+split: { scheme: official_10_4_7 }   # by video id
+cite: "arXiv:2208.02049"

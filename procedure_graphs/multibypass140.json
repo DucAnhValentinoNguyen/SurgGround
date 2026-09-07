@@ -1,0 +1,22 @@
+{
+  "dataset": "multibypass140",
+  "_todo": "P1: fill exact 12 phase names + 46 steps (with parent_phase) from the cloned repo labels/ and the LRYGB ontology (arXiv:2312.11250). Below is a placeholder skeleton with only the clinically-hard orderings.",
+  "phases": [
+    {"id": 1, "name": "Preparation"},
+    {"id": 2, "name": "GastricPouchCreation"},
+    {"id": 3, "name": "OmegaLoopJejunalPreparation"},
+    {"id": 4, "name": "GastrojejunalAnastomosis"},
+    {"id": 5, "name": "AnastomoticLeakTest"},
+    {"id": 6, "name": "JejunojejunalAnastomosis"},
+    {"id": 7, "name": "MesentericDefectClosure"},
+    {"id": 8, "name": "PetersenDefectClosure"},
+    {"id": 9, "name": "Other"},
+    {"id": 10, "name": "OutOfBody"},
+    {"id": 11, "name": "Cleaning"},
+    {"id": 12, "name": "Finished"}
+  ],
+  "steps": [],
+  "hard_precede": [[2, 4], [4, 5], [6, 7]],
+  "soft_precede": [[1, 2], [3, 4], [5, 6], [7, 8]],
+  "mutually_exclusive_at_t": true
+}

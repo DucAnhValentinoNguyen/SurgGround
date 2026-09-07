@@ -1,0 +1,7 @@
+# Baseline only (P3 zero-shot + a LoRA-SFT comparison row). No architecture surgery.
+backend: llava_video_7b
+model:
+  id: lmms-lab/LLaVA-Video-7B-Qwen2
+  dtype: bfloat16
+  load_4bit: true              # 4-bit inference to fit 24 GB
+  attn: sdpa

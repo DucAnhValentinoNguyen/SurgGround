@@ -21,6 +21,20 @@ references only.
 **The full, end-to-end implementation plan is in [`PLAN.md`](PLAN.md).** Build it
 phase by phase (P0 -> P11); each phase has a Definition of Done and a smoke test.
 
+## Quickstart (per box)
+
+```bash
+git clone https://github.com/DucAnhValentinoNguyen/SurgGround.git && cd SurgGround
+bash scripts/setup_env_4090.sh                 # uv venv + stack + capability report
+cp scripts/env_4090.local.sh.example scripts/env_4090.local.sh   # edit paths for this box
+source scripts/env_4090.sh
+pytest -q                                        # pure modules green; later-phase tests skipped
+```
+
+Full machine bring-up + which box runs what + agent prompts:
+**[`docs/ONBOARDING.md`](docs/ONBOARDING.md)**. Agent rules: **[`CLAUDE.md`](CLAUDE.md)**.
+Progress: **[`docs/STATUS.md`](docs/STATUS.md)**.
+
 ## Long-video datasets (primary)
 
 | Dataset | Procedure | #videos | avg length | annotations |

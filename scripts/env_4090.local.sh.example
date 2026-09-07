@@ -1,0 +1,19 @@
+# Copy to scripts/env_4090.local.sh (git-ignored) and edit for THIS box.
+# Sourced at the end of scripts/env_4090.sh, so these WIN over the hostname defaults.
+
+# --- helena example (root NVMe has ~308 GB; put frames there, big files on /home) ---
+# export DATA_ROOT=/data/surgground
+# export FRAMES_ROOT=$DATA_ROOT/frames
+# export OUT_ROOT=/home/duc/surgground_runs
+# export HF_HOME=/home/duc/surgground_hf
+# export SHARDS_ROOT=/home/duc/surgground_shards
+
+# --- biostat example (root HDD ~251 GB; NAS ra92miz for archive only) ---
+# export DATA_ROOT=/home/duc/surgground/data
+# export FRAMES_ROOT=$DATA_ROOT/frames
+# export OUT_ROOT=/home/duc/surgground/runs
+# export HF_HOME=$DATA_ROOT/hf_cache
+# export SHARDS_ROOT=$DATA_ROOT/sft_shards
+
+# Optional: fewer dataloader workers if RAM < 32 GB
+# export SURGGROUND_NUM_WORKERS=4
