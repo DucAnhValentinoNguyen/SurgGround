@@ -36,9 +36,10 @@ once (helena is source of truth for GraSP + MultiBypass140 frames).
 
 | # | Blocker | Owner | Since | Note |
 |---|---|---|---|---|
-| B1 | **Dataset access — direct downloads (no form)** | USER | 2026-09-07 | **GraSP:** github.com/BCV-Uniandes/GraSP -> README "Data Preparation" (BCV server / Drive). **MultiBypass140:** NO form — `git clone github.com/CAMMA-public/MultiBypass140` (labels + per-center splits + `util/extract_frames.py`) then `wget` 5 video zips `multibypass0{1_corrected,2..5}.zip` + `multibypass06_corrected.zip` (IAE) from `https://s3.unistra.fr/camma_public/datasets/MultiBypass140/`; extract @1fps **one zip at a time, deleting each** (bounds disk). Stage both on **helena** `$DATA_ROOT/raw/`. |
-| B1-forms | **Dataset access — forms/EULA** — Cholec80, CholecT50, HeiChole | USER | 2026-09-06 | Cholec80 + CholecT50 = CAMMA Google Forms (camma.unistra.fr/datasets + each repo README). HeiChole = Synapse `syn18824884` + data-use agreement (OOD-only). Turnaround days. **P1 decode is blocked on these; P0 and P2/P3-on-stand-in are not.** |
-| B1-AutoLaparo | **AutoLaparo — access ALREADY granted** | USER | 2026-04-24 | Download link email from `autolaparo@gmail.com` (2026-04-24). **Only "Task 1 — Surgical workflow recognition"** is needed (21 videos + phase labels); QNAP web share at `http://210.3.251.30:8080`. Action: download (resumable; may be slow/expired -> re-request via autolaparo.github.io or ziyiwangx@gmail.com), stage on **helena** `$DATA_ROOT/raw/autolaparo/`. License: academic-only, cite arXiv:2208.02049. |
+| B1 | **Datasets — no gate, download on the boxes** | USER/agent | 2026-09-07 | **Cholec80, MultiBypass140** = public S3, no form. **GraSP** = Google Drive folder. All via `scripts/download/*.sh` -> run on **helena**. Full guide: `docs/DATASETS.md`. Prereq: `aria2 unzip git ffmpeg` + `pip install gdown`. GraSP Drive may throttle -> rclone fallback in the script. |
+| B1-CholecT50 | **CholecT50 — access GRANTED (2026-09-07), 1 browser unlock left** | USER | 2026-09-07 | CAMMA "Access Granted" email. Open the link-lock "here" link, password `t50_camma_@dwaxr+` (poss. + a one-time-password email) -> reveals a Seafile URL -> `CHOLECT50_URL='...?dl=1' bash scripts/download/cholect50.sh` on **helena**. Labels only; videos = Cholec80. |
+| B1-HeiChole | **HeiChole — Synapse gate (OOD-only)** | USER | 2026-09-06 | synapse.org: become Certified User (quiz) -> open `syn18824884` Files -> accept data-use agreement -> create a Download-scope PAT. Then `SYNAPSE_AUTH_TOKEN=... HEICHOLE_SYN=syn######## bash scripts/download/heichole.sh` on **biostat**. Only real gate remaining. **P1 decode of the others is not blocked on this.** |
+| B1-AutoLaparo | **AutoLaparo — access ALREADY granted** | USER | 2026-04-24 | `autolaparo@gmail.com` email. **Only "Task 1"** (21 videos + phase labels); QNAP share `http://210.3.251.30:8080`. Copy the direct file link -> `AUTOLAPARO_URL='...' bash scripts/download/autolaparo.sh` on **helena**. If dead: re-request autolaparo.github.io / ziyiwangx@gmail.com. Cite arXiv:2208.02049. |
 | B2a | **helena readiness** | USER | 2026-09-07 | `nvidia-smi` confirms **24 GB RTX 4090** + driver/CUDA; `free -g` (if < 32 GB -> fewer dataloader workers); `ffmpeg -version`; NVMe `/` free **>= ~300 GB**; `~/.hf_token`; `uv` installed. |
 | B2b | **biostat readiness + cross-box** | USER | 2026-09-07 | Same GPU/ffmpeg/token checks; **passwordless SSH `helena` <-> `biostat` both ways**; HF Hub token with **write** scope; create the **private** repo `DucAnhValentinoNguyen/surgground-ckpts`. |
 | B3 | Public stand-in data | agent (P2) | 2026-09-06 | Download Charades-STA or ActivityNet-Captions (~few hundred MB) so grounding metrics + harness + regime router can be exercised before B1 clears. |
@@ -53,7 +54,7 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
 | **P0** Scaffold + env + config | biostat | open | — | — | Start here. Repo skeleton (PLAN §5), `pyproject.toml` (§6.1), `scripts/setup_env_4090.sh` + `env_4090.sh` (hostname-switch) + `env_4090.local.sh`, `config/default.yaml` (§15, 3 `hardware:` presets), `surgground/cfg.py`, `tests/test_cfg.py`. Then also run `setup_env_4090.sh` on helena. DoD in PLAN P0. |
-| **P1** Data acquisition + decode + index | helena (parsers: biostat) | blocked (B1*, B2a) | — | — | **GraSP** ships frames; **MultiBypass140 + Cholec80 + CholecT50 + AutoLaparo + HeiChole ship video** -> extract @1fps (MBP140 via its `util/extract_frames.py`, one zip at a time + delete). **Parser code + `splits.py` + `procedure_graphs/*.json` can start now on biostat** (`feat/p01-parsers`, no data). After decode: `rsync` eval subsets helena->biostat. |
+| **P1** Data acquisition + decode + index | helena (parsers: biostat) | blocked (B2a); data via `scripts/download/*` | — | — | Fetch scripts + `docs/DATASETS.md` EXIST. **GraSP** ships frames; the rest ship **video** -> extract @1fps (MBP140 via its `util/extract_frames.py`, per-zip + delete). **Parser code + `splits.py` + `procedure_graphs/*.json` can start now on biostat** (`feat/p01-parsers`, no data). After decode: `rsync` eval subsets helena->biostat. HeiChole -> biostat only (B1-HeiChole gate). |
 | **P2** Task construction + metric modules | biostat | open (no GPU) | — | — | Start once `surgground/cfg.py` exists (P0). Uses B3 stand-in. |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
@@ -68,6 +69,16 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 ---
 
 ## Handoff notes (newest first)
+
+### 2026-09-07 (later) — dataset download kit added
+`scripts/download/{_common,cholec80,cholect50,multibypass140,grasp,autolaparo,heichole,charades_sta}.sh`
++ `docs/DATASETS.md`. Agents on helena/biostat download data **directly** (no
+laptop). Status: Cholec80 + MultiBypass140 = public S3 (no form); GraSP = Drive
+folder; AutoLaparo + CholecT50 = granted (CholecT50 needs 1 browser unlock ->
+`CHOLECT50_URL=`); HeiChole = still needs Synapse certify + DUA (biostat, OOD-only).
+Run order on helena once B2a is green: `cholec80.sh`, `multibypass140.sh`,
+`grasp.sh`, `autolaparo.sh` (with the QNAP link), `cholect50.sh` (with the Seafile
+URL).
 
 ### 2026-09-07 — two-box setup adopted (ADR-014)
 User has **two** single-4090 boxes: `helena` (NVMe, training) + `biostat` (HDD,

@@ -290,8 +290,6 @@ SurgGround/
     __init__.py
     cfg.py                       # OmegaConf load + hash + provenance()   [port idiom]
     data/
-      download/                  # one script per dataset + MANIFEST.md of registration steps
-        grasp.sh  multibypass140.sh  cholec80.sh  cholect50.sh  autolaparo.sh  heichole.sh
       decode.py                  # ffmpeg tiered frame extraction -> JPEG tree + parquet index
       grasp.py multibypass140.py cholec80.py cholect50.py autolaparo.py heichole.py   # annotation parsers
       registry.py                # get_dataset(name) -> uniform interface (+ domain tag)
@@ -345,6 +343,8 @@ SurgGround/
     env_4090.local.sh           # (git-ignored) this box's real DATA_ROOT etc.
     sync_checkpoints.sh          # push|pull connector.pt + LoRA adapter <-> hf://<ckpt_hub_repo>  (P4)
     agent_bootstrap.sh           # read-only session orientation
+    download/                    # dataset fetch scripts (EXIST NOW) — see docs/DATASETS.md
+      _common.sh cholec80.sh cholect50.sh multibypass140.sh grasp.sh autolaparo.sh heichole.sh charades_sta.sh
     run_sft.sh  run_rl_offline.sh  run_eval.sh   # thin drivers, resumable, nohup-friendly
   tests/
     test_cfg.py  test_tasks.py  test_procedure_graph.py  test_rewards.py
@@ -469,19 +469,18 @@ source of truth for GraSP + MultiBypass140 frames). Trained checkpoints move via
 ### Overview (primary = the two long ones)
 | Dataset | Procedure (domain) | #vids | **avg / max length** | Annotations we use | Access | Native frames |
 |---|---|---|---|---|---|---|
-| **GraSP** (ext. of PSI-AVA) | robot-assisted radical **prostatectomy** (robotic) | 13 | **~149 min avg**, up to ~4 h | phases, steps, atomic actions (keyframe), (instrument seg — unused) | direct download, verify host/EULA in **[USER]** `BCV-Uniandes/TAPIR` | ships **sampled frames** (~1 fps) + JSON |
-| **MultiBypass140** | lap. **Roux-en-Y gastric bypass** (laparoscopic, 2 centers) | 140 | **Stras ~110 min**, Bern ~72 min | 12 phases, 46 steps, 5 IAE types + severity | **direct** — public S3, **no form** | ships **video zips** (5-6, `s3.unistra.fr/camma_public`); labels + per-center splits + `util/extract_frames.py` (1 fps) in the **repo** |
-| Cholec80 | lap. cholecystectomy | 80 | ~39 min | 7 phases @25fps; 7 tools @1fps | CAMMA form **[USER]** | video -> decode |
-| CholecT50 | (Cholec80 subset) | 50 | ~39 min | action triplets + frame ts | CAMMA form **[USER]** | shares Cholec80 |
-| AutoLaparo | lap. hysterectomy | 21 | ~66 min (max ~112) | 7 phases | site form **[USER]** | video -> decode |
-| HeiChole (**OOD only**) | lap. cholecystectomy | 24 | ~30-60 min | 7 phases, actions, skill | Synapse + EULA **[USER]** | video -> decode |
+| **GraSP** (ext. of PSI-AVA) | robot-assisted radical **prostatectomy** (robotic) | 13 | **~149 min avg**, up to ~4 h | phases, steps, atomic actions (keyframe), (instrument seg — unused) | direct — Google Drive folder (`scripts/download/grasp.sh`) | ships **sampled frames** (~1 fps) + JSON |
+| **MultiBypass140** | lap. **Roux-en-Y gastric bypass** (laparoscopic, 2 centers) | 140 | **Stras ~110 min**, Bern ~72 min | 12 phases, 46 steps, 5 IAE types + severity | direct — public S3, **no form** (`scripts/download/multibypass140.sh`) | ships **video zips** (5-6, `s3.unistra.fr/camma_public`); labels + per-center splits + `util/extract_frames.py` (1 fps) in the **repo** |
+| Cholec80 | lap. cholecystectomy | 80 | ~39 min | 7 phases @25fps; 7 tools @1fps | direct — public S3 zip, **no form** (`scripts/download/cholec80.sh`) | video -> decode |
+| CholecT50 | (Cholec80 subset) | 50 | ~39 min | action triplets + frame ts | **granted** — 1 browser unlock -> Seafile URL (`scripts/download/cholect50.sh`) | shares Cholec80 videos |
+| AutoLaparo | lap. hysterectomy | 21 | ~66 min (max ~112) | 7 phases | **granted** (2026-04-24 email, Task 1 only) | video -> decode |
+| HeiChole (**OOD only**) | lap. cholecystectomy | 24 | ~30-60 min | 7 phases, actions, skill | Synapse `syn18824884` + certify + DUA **[USER]** (`scripts/download/heichole.sh`, on biostat) | video -> decode |
 
-**[USER] day 0:** **GraSP** and **MultiBypass140** are direct downloads (no form).
-**AutoLaparo** is already granted (2026-04-24 email — Task 1 zip). Forms still
-needed: **Cholec80** + **CholecT50** (CAMMA / repo Google Forms) and **HeiChole**
-(Synapse `syn18824884` + data-use agreement). Meanwhile the agent builds P0-P3 on
-a public stand-in (`data/download/charades_sta.sh` / ActivityNet-Captions) so the
-grounding metric + harness + regime router are exercised before surgical data
+**Acquisition:** all commands + the browser-gated bits are in **`docs/DATASETS.md`**;
+scripts in `scripts/download/`. Only **HeiChole** still needs a real gate
+(Synapse certification + data-use agreement). Meanwhile the agent builds P0-P3 on
+a public stand-in (`scripts/download/charades_sta.sh` / ActivityNet-Captions) so
+the grounding metric + harness + regime router are exercised before surgical data
 lands.
 
 ### Per-dataset notes
@@ -724,18 +723,23 @@ repo — verify it covers `.venv/`, `runs/`, `results/*` except README,
 ### P1 — Data acquisition, decode, index  ·  2-3 d (+ registration wait)  ·  box: helena (parsers: biostat)  ·  depends on: P0
 **Goal.** GraSP + MultiBypass140 (+ Cholec80/CholecT50/AutoLaparo as available)
 ingested, indexed, split; procedure graphs written.
-**Files.** `data/download/*.sh` + `MANIFEST.md`; `data/decode.py`; parsers
-`data/{grasp,multibypass140,cholec80,cholect50,autolaparo,heichole}.py` (each:
-`iter_videos()`, `phase_timeline(v)`, `step_timeline(v)` where applicable,
+**Files.** Fetch scripts **already exist** at `scripts/download/*.sh` (+
+`docs/DATASETS.md` — the acquisition guide; keep both in sync). New in P1:
+`surgground/data/decode.py`; parsers
+`surgground/data/{grasp,multibypass140,cholec80,cholect50,autolaparo,heichole}.py`
+(each: `iter_videos()`, `phase_timeline(v)`, `step_timeline(v)` where applicable,
 `triplet_runs(v)` where applicable, `domain`, `center`); `data/registry.py`;
-`data/splits.py`; `procedure_graphs/*.json` (Appendix A); `data/download/charades_sta.sh`
-(stand-in).
+`data/splits.py`; `procedure_graphs/*.json` (Appendix A). The stand-in fetch is
+`scripts/download/charades_sta.sh`.
 **Design.** Parsers normalize to seconds + a per-dataset phase/step vocabulary in
 `config/data/<ds>.yaml`. `decode.py` idempotent; **GraSP** is the only
 frame-shipped set (skip decode, just index). **MultiBypass140**:
-`data/download/multibypass140.sh` = `git clone` the repo (labels + per-center
-splits + `util/extract_frames.py`) + `wget` the 5-6 S3 video zips; then extract
-@1fps **one zip at a time, deleting each zip** (disk bound). GraSP: confirm
+`scripts/download/multibypass140.sh` already does `git clone` (labels + per-center
+splits + `util/extract_frames.py`) + `wget` the 5-6 S3 video zips + per-zip
+extract@1fps + delete; P1 just adds the parquet index + parser over the result.
+**Cholec80** = one public S3 zip (`scripts/download/cholec80.sh`, no form).
+**CholecT50** = access granted; `cholect50.sh` needs the browser-unlocked Seafile
+URL as `CHOLECT50_URL=`. GraSP: confirm
 sampled-frame fps, wire `step_timeline`.
 **DoD.** `index.parquet` for GraSP + MultiBypass140 + >=1 Cholec set; split
 asserts pass; `phase_timeline` / `step_timeline` spot-checked against raw
