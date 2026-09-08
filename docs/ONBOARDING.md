@@ -32,6 +32,15 @@ fallback).
 
 ## 2. Per-box paths + env
 
+**helena only — create the NVMe data root first** (ADR-014a). `/data` does not
+exist and there is no passwordless `sudo`, so do this by hand once:
+```bash
+sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground
+```
+This is the path `scripts/env_4090.sh` already defaults `DATA_ROOT` to on helena —
+so **do not** override it in `env_4090.local.sh`. Do **not** use `/tmp` (wiped on
+reboot) or `/home` (only ~242 GB free; MultiBypass140 needs NVMe).
+
 ```bash
 cp scripts/env_4090.local.sh.example scripts/env_4090.local.sh
 $EDITOR scripts/env_4090.local.sh        # set DATA_ROOT etc. for THIS box (examples in the file)
@@ -100,15 +109,23 @@ they run). The two branches touch disjoint files — they never block each other
 > Read `CLAUDE.md`, run `bash scripts/agent_bootstrap.sh`, and read
 > `docs/STATUS.md` top to bottom. You are on the **helena** TRAINING box. Claim
 > the **P1** row in `docs/STATUS.md` (Box = helena), branch `feat/p01-data`.
-> **First**, kick off the ungated downloads detached:
+> Confirm `/data/surgground` exists and is writable (ONBOARDING §2 / ADR-014a);
+> `source scripts/env_4090.sh` must print `DATA_ROOT=/data/surgground`.
+> **First**, before that download, edit `scripts/download/multibypass140.sh` to
+> process **one surgical centre at a time** per ADR-014a — download+unzip
+> `StrasBypass70` zips into a scratch dir on `/home`, run `extract_frames.py` to
+> `/data/surgground/...`, `rm -rf` the scratch videos, then repeat for
+> `BernBypass70` — so the video intermediate never exceeds ~125 GB. Then kick off
+> the ungated downloads detached:
 > `nohup bash scripts/download/cholec80.sh > /tmp/dl_cholec80.log 2>&1 &` and the
 > same for `multibypass140.sh` and `grasp.sh` (per `docs/DATASETS.md`);
 > `autolaparo.sh` / `cholect50.sh` wait for URLs I paste. **While they run**,
 > implement **P1** per `PLAN.md`: the six `surgground/data/*.py` dataset parsers,
 > `decode.py`, `splits.py`, and the `_todo` fields in
-> `procedure_graphs/{grasp,multibypass140}.json`. Follow the DoD + smoke gate
-> before any PR to `main`. Record the download PIDs + log paths and update
-> `docs/STATUS.md` before stopping.
+> `procedure_graphs/{grasp,multibypass140}.json`. Watch NVMe free space — if the
+> final footprint crosses ~280 GB apply the ADR-014 §6.3 fallback. Follow the DoD
+> + smoke gate before any PR to `main`. Record the download PIDs + log paths and
+> update `docs/STATUS.md` before stopping.
 
 Both agents: `git pull` at session start, `git push` + update `docs/STATUS.md`
 before stopping. The `STATUS.md` **Box** column is the lock — claim a phase row

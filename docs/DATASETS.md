@@ -13,10 +13,17 @@ Training data -> **helena** (`$DATA_ROOT/raw/…`, NVMe). HeiChole (OOD-only) ->
 ## Prereqs (once per box)
 
 ```bash
-source scripts/env_4090.sh          # sets DATA_ROOT (created in P0; until then: export DATA_ROOT=...)
+# helena only — the NVMe data root does not exist and there is no passwordless sudo (ADR-014a):
+sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground
+source scripts/env_4090.sh          # helena must then print DATA_ROOT=/data/surgground  (do NOT override to /tmp or /home)
 sudo apt-get install -y aria2 unzip git ffmpeg     # aria2 = fast resumable parallel download
 pip install -U gdown synapseclient                 # GraSP (Drive) / HeiChole (Synapse)
 ```
+
+helena NVMe `/data/surgground` has ~291 GB free. Final footprint (GraSP ~40-90 +
+MBP140 frames ~120-160 + Cholec80 ~40 + AutoLaparo ~10 ≈ **210-300 GB**) fits but
+is tight — if it crosses ~280 GB, re-encode frames JPEG q85 @ 448 px and keep
+AutoLaparo-train on `/home` (ADR-014 §6.3).
 
 ## Summary
 
@@ -54,6 +61,12 @@ bash scripts/download/multibypass140.sh
 # unzip+delete each zip, extract frames @1fps for StrasBypass70 + BernBypass70.
 # After verifying: rm -rf $DATA_ROOT/raw/MultiBypass140/datasets/MultiBypass140/*/videos  (saves ~250 GB)
 ```
+**helena disk discipline (ADR-014a):** the current script downloads/unzips *all*
+zips, then extracts — the extracted videos (~250 GB) + growing frames overrun the
+291 GB NVMe. The P1 agent must change it to process **one centre at a time**:
+Stras zips -> scratch dir on `/home` -> `extract_frames.py` to `/data/surgground`
+-> `rm -rf` the Stras scratch videos -> repeat for Bern. Peak video intermediate
+then stays ~125 GB (on `/home`, not the NVMe). `aria2c -c` keeps it resume-safe.
 
 ### GraSP  — Google Drive folder
 ```bash

@@ -43,7 +43,7 @@ once (helena is source of truth for GraSP + MultiBypass140 frames).
 | B1-CholecT50 | **CholecT50 — access GRANTED (2026-09-07), 1 browser unlock left** | USER | 2026-09-07 | CAMMA "Access Granted" email. Open the link-lock "here" link, password `t50_camma_@dwaxr+` (poss. + a one-time-password email) -> reveals a Seafile URL -> `CHOLECT50_URL='...?dl=1' bash scripts/download/cholect50.sh` on **helena**. Labels only; videos = Cholec80. |
 | B1-HeiChole | **HeiChole — Synapse gate (OOD-only)** | USER | 2026-09-06 | synapse.org: become Certified User (quiz) -> open `syn18824884` Files -> accept data-use agreement -> create a Download-scope PAT. Then `SYNAPSE_AUTH_TOKEN=... HEICHOLE_SYN=syn######## bash scripts/download/heichole.sh` on **biostat**. Only real gate remaining. **P1 decode of the others is not blocked on this.** |
 | B1-AutoLaparo | **AutoLaparo — access ALREADY granted** | USER | 2026-04-24 | `autolaparo@gmail.com` email. **Only "Task 1"** (21 videos + phase labels); QNAP share `http://210.3.251.30:8080`. Copy the direct file link -> `AUTOLAPARO_URL='...' bash scripts/download/autolaparo.sh` on **helena**. If dead: re-request autolaparo.github.io / ziyiwangx@gmail.com. Cite arXiv:2208.02049. |
-| B2a | **helena readiness** | USER | 2026-09-07 | `nvidia-smi` confirms **24 GB RTX 4090** + driver/CUDA; `free -g` (if < 32 GB -> fewer dataloader workers); `ffmpeg -version`; NVMe `/` free **>= ~300 GB**; `~/.hf_token`; `uv` installed. |
+| B2a | **helena readiness** | USER | 2026-09-07 | `nvidia-smi` confirms **24 GB RTX 4090** + driver/CUDA; `free -g` (if < 32 GB -> fewer dataloader workers); `ffmpeg -version`; NVMe `/` free **>= ~290 GB**; `~/.hf_token`; `uv` installed. **NVMe has no user-writable dir + no passwordless sudo (found 2026-09-08)** -> run once: `sudo mkdir -p /data/surgground && sudo chown -R $USER /data/surgground` (= the `env_4090.sh` default `DATA_ROOT`; **do not** override to `/tmp` or `/home`). See ADR-014a. |
 | B2b | **biostat readiness + cross-box** | USER | 2026-09-07 | Same GPU/ffmpeg/token checks; **passwordless SSH `helena` <-> `biostat` both ways**; HF Hub token with **write** scope; create the **private** repo `DucAnhValentinoNguyen/surgground-ckpts`. |
 | B3 | Public stand-in data | agent (P2) | 2026-09-06 | Download Charades-STA or ActivityNet-Captions (~few hundred MB) so grounding metrics + harness + regime router can be exercised before B1 clears. |
 
@@ -73,7 +73,20 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-07 (latest) — P0 scaffold pushed; agents can start
+### 2026-09-08 (latest) — helena data-root decided (ADR-014a); MBP140 disk fix
+helena bring-up found the NVMe `/` has no user-writable dir and no passwordless
+sudo -> `_common.sh` `mkdir` fails, no download can start. **Decision (ADR-014a):**
+user runs `sudo mkdir -p /data/surgground && sudo chown -R $USER /data/surgground`
+once (that's the `env_4090.sh` helena default `DATA_ROOT`; `/tmp` rejected =
+reboot-wiped, `/home` rejected = only ~242 GB). Docs updated: ADR-014a,
+`ONBOARDING.md` §2 + helena prompt, `DATASETS.md`, B2a above.
+**P1 agent deliverable added:** rewrite `scripts/download/multibypass140.sh` to
+extract frames **one centre at a time** (Stras -> `/data`, delete Stras scratch
+videos, then Bern) so the ~250 GB video intermediate never lands on the NVMe —
+scratch on `/home`, peak ~125 GB. Watch NVMe free; ADR-014 §6.3 JPEG fallback if
+final footprint > ~280 GB.
+
+### 2026-09-07 — P0 scaffold pushed; agents can start
 Importable `surgground/` package with **working pure modules + green tests**
 (cfg, `models/procedure_graph`, `train/rewards`, `data/regime`, `data/templates`,
 `eval/{grounding,phase,rsd,reliability}`), plus config, env/setup/sync scripts,

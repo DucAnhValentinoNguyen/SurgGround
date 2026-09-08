@@ -196,3 +196,41 @@ ownership table gains a **Box** column; B2 splits into B2a (helena) / B2b
 P9 efficiency/VRAM table may be measured on either box — both are equivalent
 24 GB 4090s; state this. Calendar: ~9-11 weeks (one card) -> **~7-9 weeks**
 because the eval-heavy middle runs on `biostat` while `helena` trains.
+
+### ADR-014a — helena data-root: `sudo`-created `/data/surgground` on NVMe; bound the MultiBypass140 video intermediate
+**Status:** accepted (2026-09-08)  ·  **Amends:** ADR-014 (helena storage)
+**Context (from the helena bring-up):** the NVMe root `/` has **~291 GB free**
+but **no user-writable directory** (`/data` does not exist) and there is **no
+passwordless `sudo`** — so `scripts/download/_common.sh` (`mkdir -p
+$DATA_ROOT/raw`) hard-fails and no download can start. The HDD `/home` has
+**~242 GB free (86 % full)**. MultiBypass140 ships ~250 GB of video zips; after
+`util/extract_frames.py` the *extracted videos* are also ~250 GB on disk **before**
+they are deleted, so a naive run needs ~250 GB (videos) + growing frames at peak.
+**Decision:**
+- **Data root = `/data/surgground` on the NVMe**, created once by the user:
+  `sudo mkdir -p /data/surgground && sudo chown -R $USER /data/surgground`.
+  This is already the `scripts/env_4090.sh` default for `*helena*` (`DATA_ROOT`),
+  so **no `env_4090.local.sh` override** and no config drift. Frames stay on NVMe
+  as ADR-014 requires.
+- **Rejected `/tmp/surgground`:** cleared on reboot / aged out by
+  `systemd-tmpfiles`; multi-day training would lose the frame store. Also `/tmp`
+  may be `tmpfs` (RAM) on some hosts -> a large download would OOM the 32 GB box.
+- **Rejected `/home` + defer MultiBypass140:** MBP140 is one of the two genuine
+  ~2-hour datasets (the reason for the rev-2 refocus); deferring it guts the
+  pitch and blocks the P1 DoD (needs an MBP140 index). HDD frame I/O also defeats
+  the point of `helena` being the NVMe box.
+- **Bound the MBP140 video intermediate (P1 agent updates
+  `scripts/download/multibypass140.sh`):** download+unzip **one surgical centre
+  at a time** into a scratch dir on `/home` (`StrasBypass70` first, then
+  `BernBypass70` — one centre's videos ≈ 125 GB, fits `/home`), run
+  `extract_frames.py` writing frames to `/data/surgground/...`, then `rm -rf` that
+  centre's scratch videos **before** starting the next centre. Peak transient:
+  ~125 GB on `/home` + growing frames on `/data`, never both centres' videos at
+  once. `aria2c -c` (already in `_common.sh`) keeps every download resume-safe.
+**Consequences:** `docs/STATUS.md` B2a gains "create `/data/surgground` via sudo"
+as an explicit sub-step. Final helena NVMe footprint (GraSP ~40-90 + MBP140
+frames ~120-160 + Cholec80 ~40 + AutoLaparo ~10 ≈ **210-300 GB**) fits the 291 GB
+free, but is tight: if it crosses ~280 GB, apply the ADR-014 §6.3 fallback
+(re-encode frames JPEG q85 @ 448 px; keep AutoLaparo-train on `/home`). The
+per-centre-interleave change to `multibypass140.sh` is part of P1's deliverable
+and its DoD note.
