@@ -77,24 +77,38 @@ sudo apt-get install -y aria2 unzip git ffmpeg
 
 ## 7. Start the agents
 
-### On **helena** — first prompt to the agent
-> Read `CLAUDE.md` and run `bash scripts/agent_bootstrap.sh`. You are on the
-> TRAINING box. First job: acquire the training datasets per `docs/DATASETS.md`
-> — run `scripts/download/cholec80.sh`, `scripts/download/multibypass140.sh`,
-> `scripts/download/grasp.sh`, then `autolaparo.sh` / `cholect50.sh` once I paste
-> their URLs. Then implement **P1** (`surgground/data/*` parsers + `decode.py` +
-> `splits.py`, finalize `procedure_graphs/{grasp,multibypass140}.json`) per
-> `PLAN.md`. Update `docs/STATUS.md` as you go; branch `feat/p01-data`.
+**Order:** start the **biostat** agent first (P2 is fully unblocked and P3 depends
+on its output), then the **helena** agent (kick off downloads, code parsers while
+they run). The two branches touch disjoint files — they never block each other.
 
-### On **biostat** — first prompt to the agent
-> Read `CLAUDE.md` and run `bash scripts/agent_bootstrap.sh`. You are on the
-> EVAL/DEV box. P0 scaffold is already in `main` (verify: `pytest -q` green).
-> Start **P2** (`surgground/data/tasks.py` + `templates` wiring + `shards.py` +
-> `collate.py` + the remaining `surgground/eval/*` metric modules — grounding /
-> phase / rsd / reliability are already implemented with tests, do detection /
-> qa / summary / efficiency / aggregate). Use `scripts/download/charades_sta.sh`
-> as the stand-in. Also help finalize `feat/p01-parsers` code (no data needed).
-> Branch `feat/p02-tasks-metrics`. Update `docs/STATUS.md`.
+### On **biostat** — first prompt to the agent  (start this one first)
+> Read `CLAUDE.md`, run `bash scripts/agent_bootstrap.sh`, and read
+> `docs/STATUS.md` top to bottom. You are on the **biostat** EVAL/DEV box. P0 is
+> in `main` — confirm `pytest -q` green. Claim the **P2** row in `docs/STATUS.md`
+> (Box = biostat), branch `feat/p02-tasks-metrics`. Implement **P2** per
+> `PLAN.md`: `surgground/data/{tasks,shards,collate,qa_synth}.py` and
+> `surgground/eval/{detection,qa,summary,efficiency,aggregate}.py`.
+> `eval/{grounding,phase,rsd,reliability}` + `data/{templates,regime}` are
+> already implemented with tests — build on them, don't rewrite. Stand-in data:
+> `scripts/download/charades_sta.sh`. **Do not touch**
+> `surgground/data/{grasp,multibypass140,cholec80,cholect50,autolaparo,heichole}.py`
+> or `procedure_graphs/*` (helena's, on `feat/p01-data`) — code `tasks.py`
+> against the `class Parser` stub signatures already in the tree. Follow the DoD
+> + smoke gate before any PR to `main`. Update `docs/STATUS.md` before stopping.
+
+### On **helena** — first prompt to the agent
+> Read `CLAUDE.md`, run `bash scripts/agent_bootstrap.sh`, and read
+> `docs/STATUS.md` top to bottom. You are on the **helena** TRAINING box. Claim
+> the **P1** row in `docs/STATUS.md` (Box = helena), branch `feat/p01-data`.
+> **First**, kick off the ungated downloads detached:
+> `nohup bash scripts/download/cholec80.sh > /tmp/dl_cholec80.log 2>&1 &` and the
+> same for `multibypass140.sh` and `grasp.sh` (per `docs/DATASETS.md`);
+> `autolaparo.sh` / `cholect50.sh` wait for URLs I paste. **While they run**,
+> implement **P1** per `PLAN.md`: the six `surgground/data/*.py` dataset parsers,
+> `decode.py`, `splits.py`, and the `_todo` fields in
+> `procedure_graphs/{grasp,multibypass140}.json`. Follow the DoD + smoke gate
+> before any PR to `main`. Record the download PIDs + log paths and update
+> `docs/STATUS.md` before stopping.
 
 Both agents: `git pull` at session start, `git push` + update `docs/STATUS.md`
 before stopping. The `STATUS.md` **Box** column is the lock — claim a phase row
