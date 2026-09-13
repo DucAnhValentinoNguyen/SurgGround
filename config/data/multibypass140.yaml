@@ -4,11 +4,76 @@ centers: [strasbourg, bern]   # StrasBypass70 (~110 min avg), BernBypass70 (~72 
 role: primary_long            # primary long-video + multi-center generalization
 native: video                 # scripts/download/multibypass140.sh -> util/extract_frames.py @1fps
 ann_fps: 1
-# 12 phases / 46 steps / 5 IAE types. FILL exact names in P1 from the cloned repo:
-#   labels/{bern,strasbourg}/labels_by70_splits/  +  the LRYGB ontology (arXiv:2312.11250).
-phase_names: TODO_P1           # 12
-step_names: TODO_P1            # 46 ; each -> parent_phase
-iae_types: TODO_P1            # 5 + severity 1..5
+# 12 phases / 46 steps / 5 IAE types, verified against the LRYGB ontology figure
+# (static/hierarchy.jpg) in github.com/CAMMA-public/MultiBypass140 (arXiv:2312.11250).
+# phase_names[i] -> phase id i+1 (matches Phase_gt+1 in the repo's label pickles).
+# step_names[i]  -> step id i    (matches Step_gt directly, 0-based; S0 = null step).
+phase_names:                   # 12
+  - Preparation
+  - GastricPouchCreation
+  - OmentumDivision
+  - GastrojejunalAnastomosis
+  - AnastomosisTest
+  - JejunalSeparation
+  - PetersenSpaceClosure
+  - JejunojejunalAnastomosis
+  - MesentericDefectClosure
+  - CleaningAndCoagulation
+  - Disassembling
+  - OtherIntervention
+step_names:                    # 46 ; parent_phase for each lives in procedure_graphs/multibypass140.json
+  - NullStep                          # S0
+  - AbdominalCavityExploration        # S1
+  - TrocarPlacement                   # S2
+  - RetractorPlacement                # S3
+  - FatPadDissection                  # S4
+  - LesserCurveDissection             # S5
+  - HorizontalStapling                # S6
+  - RetrogastricDissection            # S7
+  - VerticalStapling                  # S8
+  - GastricRemnantReinforcement       # S9
+  - GastricPouchReinforcement         # S10
+  - GastricOpening                    # S11
+  - OmentumExposure                   # S12
+  - OmentalTransection                # S13
+  - Adhesiolysis                      # S14
+  - TreitzAngleIdentification         # S15
+  - BiliaryLimbMeasurement            # S16
+  - JejunumOpening                    # S17
+  - GastrojejunalStapling             # S18
+  - GastrojejunalDefectClosure        # S19
+  - MesentericOpening                 # S20
+  - JejunalTransection                # S21
+  - GastricTubePlacement              # S22
+  - JejunalClamping                   # S23
+  - DyeInjection                      # S24
+  - VisualAssessment                  # S25
+  - GastrojejunalAnastomosisReinforcement  # S26
+  - PetersenSpaceExposure             # S27
+  - PetersenSpaceClosureStep          # S28
+  - BiliaryLimbOpening                # S29
+  - AlimentaryLimbMeasurement         # S30
+  - AlimentaryLimbOpening             # S31
+  - JejunojejunalStapling             # S32
+  - JejunojejunalDefectClosure        # S33
+  - JejunojejunalAnastomosisReinforcement  # S34
+  - StapleLineReinforcement           # S35
+  - MesentericDefectExposure          # S36
+  - MesentericDefectClosureStep       # S37
+  - AnastomosisFixation               # S38
+  - Hemostasis                        # S39
+  - IrrigationAspiration              # S40
+  - ParietalClosure                   # S41
+  - TrocarRemoval                     # S42
+  - SutureOfSmallBowelLesion          # S43
+  - DrainageInsertion                 # S44
+  - SpecimenRetrieval                 # S45
+iae_types:                     # 5 + severity 0 (none) - 5
+  - Bleeding
+  - MechanicalInjury
+  - ThermalInjury
+  - IschemicInjury
+  - InsufficientClosureOfAnastomosis
 phase_graph: procedure_graphs/multibypass140.json
 split:
   scheme: official_per_center  # repo provides train/val/test folds per center
