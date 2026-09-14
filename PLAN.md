@@ -293,6 +293,7 @@ SurgGround/
       decode.py                  # ffmpeg tiered frame extraction -> JPEG tree + parquet index
       grasp.py multibypass140.py cholec80.py cholect50.py autolaparo.py heichole.py   # annotation parsers
       registry.py                # get_dataset(name) -> uniform interface (+ domain tag)
+      standin.py                 # P2 stand-in parser: Charades-STA or synthetic timelines
       tasks.py                   # timelines -> T1..T7 items (grounding, phase/step, RSD, detection, QA, summary, IAE)
       templates.py               # prompt/answer templates; timestamp formatting; regime hints
       qa_synth.py                # offline LLM paraphrase pass (cached, committed)

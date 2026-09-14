@@ -7,9 +7,9 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 ## Snapshot
 
-- **Active phases:** **P1 on helena** (data) ∥ **P2 on biostat** (tasks + metrics), in parallel
-- **Active branch:** `feat/p01-data` (helena) · `feat/p02-tasks-metrics` (biostat)
-- **Last updated:** 2026-09-14 — P1 code complete on helena; **blocked on `/data/surgground`**, no downloads started yet
+- **Active phases:** **P1 on helena** (data, downloads running) ∥ **P2 on biostat** (tasks + metrics, in review), in parallel
+- **Active branch:** `feat/p01-data` (helena) · `feat/p02-tasks-metrics` (biostat, in review)
+- **Last updated:** 2026-09-14 — `/data/surgground` created; P1 downloads running on helena (Cholec80 landed, GraSP in progress); P2 DoD green on biostat, PR pending
 - **Overall:** **P0 done** — importable `surgground` package, `pyproject.toml`,
   `config/`, env/setup/sync scripts, `lrz/` stubs, 4 procedure graphs, and
   working implementations of the pure modules (cfg, procedure_graph, rewards,
@@ -57,8 +57,8 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
 | **P0** Scaffold + env + config | biostat | **done** (this commit) | planning session | `feat/p00-scaffold` -> `main` | 65 py files compile; `pytest -q` green (36 pass / 4 skip) on numpy+scipy+sklearn+omegaconf; `run_eval --help` works. Each box still runs `setup_env_4090.sh` + `pytest` to verify locally (P0 DoD). |
-| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — code done, **blocked on data** | cc-sonnet-p01 | `feat/p01-data` | **Code complete, pytest -q green (60 pass/4 skip), ruff clean** (see 2026-09-14 handoff for full evidence). **Not done: DoD.** No dataset has downloaded yet — `/data/surgground` still doesn't exist (B2a), so `scripts/download/*.sh` cannot run at all. `index.parquet` for GraSP/MultiBypass140/Cholec80 does not exist; 5-video spot-checks not run. |
-| **P2** Task construction + metric modules | biostat | **ready** (P0 done; use `charades_sta.sh` stand-in) | — | `feat/p02-tasks-metrics` | Stubs to fill: `data/tasks.py`, `shards.py`, `collate.py`, `qa_synth.py`; `eval/{detection,qa,summary,efficiency,aggregate}.py`. **Done already:** `eval/{grounding,phase,rsd,reliability}.py` + `data/{templates,regime}.py` + tests. |
+| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — code done, **downloads running** | cc-sonnet-p01 | `feat/p01-data` | **Code complete, pytest -q green (60 pass/4 skip), ruff clean.** `/data/surgground` created 2026-09-14; Cholec80 landed (`raw/cholec80/` 96 GB — bigger than docs' ~35 GB estimate, `docs/DATASETS.md` needs a line fix); GraSP downloading (fixed 2 real bugs in `grasp.sh`, see handoff: unsupported `--remaining-ok` flag, and it was about to pull the full 30fps+videos tree instead of just the 1fps subset). **Not done: DoD** — no `index.parquet` yet, no spot-checks, MultiBypass140 not launched yet. |
+| **P2** Task construction + metric modules | biostat | **in review (PR pending)** | agent-sonnet5 | `feat/p02-tasks-metrics` | DoD green: `pytest -q` -> `70 passed, 2 skipped` (the 2 skips are P4/model-only: `test_recursive.py`, `test_temporal_connector.py`). `python -m surgground.data.tasks --dataset standin --split val --write --shards` writes `standin_val.jsonl` (84 items) + `standin_val_shards/shard-000000.tar` + `manifest.json`, prints a task/sub_type histogram + regime counts + abstain count. `tests/test_aggregate.py` feeds 2 fake `results/*.json` through `aggregate.py` and asserts a correct length-bucketed pivot. `ruff check surgground/ tests/` clean except one pre-existing P0 finding in `train/rewards.py` (not touched this phase). Implemented: `data/{tasks,standin,shards,qa_synth}.py` (new), `data/collate.py` (pure helpers; `Collator.__call__` stays P4), `data/templates.py` (append-only: T2/T3/T4/T5/T6 render+parse added, existing grounding functions untouched), `eval/{detection,qa,summary,efficiency,aggregate}.py`. Reused as-is: `eval/{grounding,phase,rsd,reliability}.py`, `data/regime.py`, `models/procedure_graph.py`. **T7 (IAE) intentionally deferred** — needs real MultiBypass140 adverse-event labels from P1, not synthesizable from the stand-in. Stand-in: `data/standin.py` (parses Charades-STA txt under `<data_root>/raw/charades_sta/` if present from `scripts/download/charades_sta.sh`, else deterministic synthetic surgical timelines spanning all 3 regimes); imported directly in `tasks.py`, **not** routed through `data/registry.py` (left untouched, P1/helena's). P1 parsers/`procedure_graphs/*` untouched. Env: re-ran `bash scripts/setup_env_4090.sh` (biostat) — clean capability report (RTX 4090 24 GB, torch 2.5.1+cu121, `bnb 4-bit OK`, `surgground importable`; flash-attn/mamba-ssm skipped, both optional per ADR-010/DoD). |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
 | **P5** Long-video regimes + H3 ablation | helena (sweep+retriever) + biostat (regime-eval) | not started | — | — | Depends on P4. biostat `sync_checkpoints.sh pull` before its eval matrix. |
@@ -73,7 +73,46 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-14 (latest) — P1 code complete on helena; still blocked on `/data/surgground`
+### 2026-09-14 (latest) — `/data/surgground` created; P1 downloads launched; grasp.sh disk-safety fix
+
+User ran the `sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground`
+from the note below. `source scripts/env_4090.sh` confirms
+`DATA_ROOT=/data/surgground`, `gdown` resolves from `.venv/bin`.
+
+Launched `cholec80.sh` + `grasp.sh` detached (staged per the plan; MultiBypass140
+not yet started). **Cholec80 landed**: `raw/cholec80/{videos,phase_annotations,
+tool_annotations}`, **96 GB on disk** (`docs/DATASETS.md` says ~35 GB zip —
+noticeably bigger in practice; worth a doc fix, not yet done).
+
+**`grasp.sh` had two real bugs, both fixed and verified working:**
+1. `gdown --folder ... --remaining-ok` — `--remaining-ok` isn't a flag on the
+   installed gdown 6.2.0 (confirmed via `gdown --help`); the script died
+   immediately. Swapped for `--continue` (closest available resumability flag).
+2. **Disk-safety issue**: the target Drive folder has two sibling subfolders —
+   `GraSP_1fps` (sampled frames + JSON, what PLAN.md actually calls for, ~13 GB)
+   and `GraSP_30fps` (13 per-video full-fps tarballs + a `videos.tar.gz` of raw
+   video — easily 10x+ larger, not needed for this project's 1fps pipeline).
+   The unpatched script pointed `gdown --folder` at the TOP folder, so it had
+   started pulling `GraSP_30fps/CASE0XX.tar.gz` too before this was caught
+   (free space had dropped from 291 GB to 219 GB in under a minute). **Killed
+   it, pointed the script at `GraSP_1fps`'s own folder id
+   (`1GY_Z2RGMN35MTt3ANamOnwKRbVdl6sP9`) instead**, deleted the partial
+   download, relaunched — now correctly pulling only `annotations.tar.gz` +
+   `frames.tar.gz` (12.9 GB) + `README.txt`. `scripts/download/grasp.sh`
+   committed with both fixes + the folder-id note for future reference.
+
+**State when this note was written:** Cholec80 done; GraSP ~20% through
+`frames.tar.gz` (PID still running, `/tmp/dl_grasp.log`); NVMe at 193 GB free
+(240 GB used). MultiBypass140 not launched yet — next action per the staged
+plan (ADR-014a): launch it once GraSP finishes landing, or under an active
+`df -h /data` watch.
+
+Also resolved a **git merge conflict** in this file against `origin/main`
+(PR #1, P2's `feat/p02-tasks-metrics` merged first) — both sides' Snapshot /
+P1+P2 phase rows / handoff notes are kept below, combined rather than one side
+dropped.
+
+### 2026-09-14 — P1 code complete on helena; still blocked on `/data/surgground`
 
 **Blocker unchanged since 2026-09-08 and still open:** `/data/surgground` does
 not exist. It needs one `sudo` command the agent cannot run itself:
@@ -184,6 +223,60 @@ without the real datasets):**
    P1 DoD is met — `pytest tests/test_procedure_graph.py` + `bash
    tests/smoke_decode.sh` green, evidence pasted into the P1 row above, PR
    `feat/p01-data` -> `main`.
+
+### 2026-09-14 — P2 (tasks + metrics) implemented on biostat, DoD green, PR pending
+Branch `feat/p02-tasks-metrics`. Verified the biostat env first (P0 DoD, per
+user request): re-ran `bash scripts/setup_env_4090.sh` (the `.venv` was missing
+most pins) — clean capability report (RTX 4090 24 GB, torch 2.5.1+cu121,
+transformers 4.52.4, peft/trl/accelerate/lightning/bitsandbytes in range,
+**bnb 4-bit OK**, `surgground` importable; `flash-attn` + `mamba-ssm` skipped,
+both optional per ADR-010, setup never blocks on them).
+
+Implemented against the P1 `class Parser` stub protocol (no P1 data present
+yet — P2 header says "depends on P1 (stand-in ok)"):
+- `data/tasks.py` — `build()` + per-task builders (T1 grounding incl.
+  phase/step/action/relative/cross-scale, T2 segmentation, T3 causal-slice RSD,
+  T4 windowed detection, T5 templated QA, T6 interval summary) +
+  `inject_unanswerable` (H1) + CLI/histogram.
+- `data/standin.py` (**new**) — P2 stand-in parser: parses Charades-STA txt
+  (`scripts/download/charades_sta.sh` output) if present under
+  `<data_root>/raw/charades_sta/`, else deterministic synthetic surgical
+  timelines across all 3 regimes. Imported **directly** in `tasks.py`
+  (`from .standin import Parser`) — `data/registry.py` (P1/helena's) was left
+  untouched.
+- `data/templates.py` — **append-only** extension (T2/T3/T4/T5/T6 render+parse
+  helpers); every existing function is untouched. Flagging for helena: this
+  shared file has new content at the end, should rebase cleanly.
+- `data/shards.py` (stdlib `tarfile`, no new dep), `data/collate.py` (pure
+  helpers only — `Collator.__call__` stays P4), `data/qa_synth.py` (committed
+  paraphrase-cache lookup + identity fallback; cache ships empty, mechanism
+  ready; `qa_synth_cache/README.md` explains regeneration).
+- `eval/{detection,qa,summary,efficiency,aggregate}.py` — all pure
+  (numpy/sklearn in, dict out); LLM-judge bodies (`qa.judge`, summary
+  factuality) and `efficiency.measure` against a live backend correctly stay
+  P3/P9 stubs (the prompt-building + aggregation halves are implemented now).
+  `eval/aggregate.py` fully implements the `results/*.json -> long_results.csv
+  + pivots.md` body (was a P0 skeleton).
+- **T7 (adverse-event) intentionally deferred** — needs real MultiBypass140 IAE
+  labels from P1, not synthesizable from the stand-in.
+- Reused as-is (per instructions): `eval/{grounding,phase,rsd,reliability}.py`,
+  `data/regime.py`, `models/procedure_graph.py`, `train/rewards.py` helpers.
+  `procedure_graphs/*` and the 6 dataset parsers untouched.
+
+**DoD/smoke evidence:** `pytest -q` -> `70 passed, 2 skipped` (skips are
+P4-only: `test_recursive.py`, `test_temporal_connector.py`); un-skipped
+`test_tasks.py` + `test_collate.py`, added `test_{detection,qa,summary,
+aggregate,efficiency,shards}_metrics.py` and extended `test_templates.py`.
+`python -m surgground.data.tasks --dataset standin --split val --write --shards`
+writes the jsonl + tar shard + manifest and prints the type histogram.
+`ruff check surgground/ tests/` clean except one **pre-existing** P0 finding in
+`train/rewards.py` (not part of this phase, left alone). PLAN.md's literal P2
+smoke (`--dataset multibypass140`) correctly exits 1 with a message pointing at
+`--dataset standin`, since that parser is still a P1 stub on helena.
+
+**Next:** open PR `feat/p02-tasks-metrics` -> `main`; once merged, **P3** can
+start (zero-shot baseline harness) once a real P1 dataset lands, or continue
+exercising the harness against `standin`/Charades-STA meanwhile.
 
 ### 2026-09-08 — helena data-root decided (ADR-014a); MBP140 disk fix
 helena bring-up found the NVMe `/` has no user-writable dir and no passwordless

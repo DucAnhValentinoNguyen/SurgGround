@@ -37,3 +37,35 @@ def test_render_answer():
     s = render_answer([1.0, 2.0], think="t", confidence=70)
     assert "<think>t</think>" in s and "[1.0, 2.0]" in s and "confidence: 70%" in s
     assert render_answer(None, abstain=True) == "<answer>ABSTAIN</answer>"
+
+
+def test_segments_roundtrip():
+    from surgground.data.templates import parse_segments, render_answer_segments
+
+    segs = [("P1", 0.0, 10.0), ("P2", 10.0, 25.5)]
+    s = render_answer_segments(segs, think="ok")
+    parsed = parse_segments(s)
+    assert parsed == [("P1", 0.0, 10.0), ("P2", 10.0, 25.5)]
+
+
+def test_minutes_roundtrip():
+    from surgground.data.templates import parse_minutes, render_answer_minutes
+
+    s = render_answer_minutes(42.0, think="est")
+    assert parse_minutes(s) == 42.0
+    assert parse_minutes("<answer>17 minutes</answer>") == 17.0
+
+
+def test_labels_roundtrip():
+    from surgground.data.templates import parse_labels, render_answer_labels
+
+    s = render_answer_labels(["clip", "cut"])
+    assert parse_labels(s) == ["clip", "cut"]
+    assert parse_labels(render_answer_labels([])) == []
+
+
+def test_extract_answer_text():
+    from surgground.data.templates import extract_answer_text
+
+    assert extract_answer_text("<think>x</think><answer>42.0</answer>") == "42.0"
+    assert extract_answer_text("no tags") == "no tags"
