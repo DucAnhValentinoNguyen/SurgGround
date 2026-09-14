@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+*.egg-info/
 
 # runs / outputs / logs (never commit)
 runs/

@@ -134,3 +134,150 @@ def parse_span(text: str):
     """First [a, b] span as (float, float), or None."""
     p = parse_answer(text)
     return tuple(p["spans"][0]) if p["spans"] else None
+
+
+# --------------------------------------------------------------------------- #
+# phase / step segmentation (T2)  ·  grammar: <answer>[["P3", 612, 1804], ...]</answer>
+# --------------------------------------------------------------------------- #
+SYSTEM_PHASE = (
+    "You are a surgical video assistant. You see frames sampled across ONE complete "
+    "operation, each with its timestamp in seconds (total duration given). Segment the "
+    "whole procedure into contiguous phases in order. Think briefly in <think>...</think>, "
+    'then answer <answer>[["<label>", start_seconds, end_seconds], ...]</answer>.'
+)
+SYSTEM_STEP = SYSTEM_PHASE.replace("into contiguous phases", "into contiguous steps")
+
+_SEG_RE = re.compile(
+    r"\[\s*\"?([A-Za-z0-9_+\- ]+?)\"?\s*,\s*([\d.:]+)\s*,\s*([\d.:]+)\s*\]"
+)
+
+
+def render_user_segmentation(frame_t_sec, duration_s: float, unit: str = "phases",
+                             fmt: str = "seconds") -> str:
+    return (f"{render_frame_header(frame_t_sec, duration_s, fmt)}\n<video>\n"
+            f"Segment this operation into {unit}.")
+
+
+def render_answer_segments(segments, think: str | None = None, fmt: str = "seconds") -> str:
+    """`segments`: list of (label, t0, t1)."""
+    body = "" if think is None else f"<think>{think}</think>"
+    inner = ", ".join(
+        f'["{label}", {format_ts(t0, fmt)}, {format_ts(t1, fmt)}]' for label, t0, t1 in segments
+    )
+    return body + f"<answer>[{inner}]</answer>"
+
+
+def parse_segments(text: str) -> list[tuple[str, float, float]]:
+    """-> [(label, t0, t1), ...] parsed from an <answer> segment list (lenient)."""
+    text = text or ""
+    m = _ANSWER_RE.search(text)
+    inner = m.group(1) if m else text
+    out: list[tuple[str, float, float]] = []
+    for label, a, b in _SEG_RE.findall(inner):
+        try:
+            t0, t1 = parse_ts(a), parse_ts(b)
+        except ValueError:
+            continue
+        if t1 < t0:
+            t0, t1 = t1, t0
+        out.append((label.strip(), t0, t1))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# remaining surgery duration (T3)  ·  grammar: <answer>42.0</answer>  (minutes)
+# --------------------------------------------------------------------------- #
+SYSTEM_RSD = (
+    "You are a surgical video assistant. You see frames sampled from the START of an "
+    "operation up to the current moment (timestamps in seconds). Estimate how many "
+    "minutes of surgery REMAIN after the last frame. Think briefly in <think>...</think>, "
+    "then answer <answer>MINUTES</answer> as a single number."
+)
+
+_MIN_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def render_user_rsd(frame_t_sec, elapsed_s: float, fmt: str = "seconds") -> str:
+    hdr = (f"Frames sampled at t = "
+           f"[{', '.join(format_ts(t, fmt) for t in frame_t_sec)}] s; "
+           f"{format_ts(elapsed_s, fmt)} s elapsed so far.")
+    return f"{hdr}\n<video>\nHow many minutes of surgery remain?"
+
+
+def render_answer_minutes(minutes: float, think: str | None = None) -> str:
+    body = "" if think is None else f"<think>{think}</think>"
+    return body + f"<answer>{float(minutes):.1f}</answer>"
+
+
+def parse_minutes(text: str) -> float | None:
+    text = text or ""
+    m = _ANSWER_RE.search(text)
+    inner = m.group(1) if m else text
+    inner = re.sub(r"(?i)\b(minutes?|mins?)\b", "", inner)
+    m2 = _MIN_RE.search(inner)
+    return float(m2.group(0)) if m2 else None
+
+
+# --------------------------------------------------------------------------- #
+# grounded QA (T5), dense detection (T4), interval summary (T6)
+# --------------------------------------------------------------------------- #
+SYSTEM_QA = (
+    "You are a surgical video assistant. You see frames sampled across ONE complete "
+    "operation, each with its timestamp in seconds (total duration given). Answer the "
+    "question about THIS video only. If it cannot be answered from the video, or assumes "
+    "an impossible order of events, answer exactly <answer>ABSTAIN</answer>. Think briefly "
+    "in <think>...</think>, then give a short <answer>...</answer>."
+)
+SYSTEM_DETECTION = (
+    "You are a surgical video assistant. You see frames sampled across ONE complete "
+    "operation, each with its timestamp in seconds. List every item active within the "
+    "asked window, comma-separated, inside <answer>...</answer> (or <answer>none</answer>)."
+)
+SYSTEM_SUMMARY = (
+    "You are a surgical video assistant. You see frames sampled across ONE complete "
+    "operation, each with its timestamp in seconds. Summarize what happens in the asked "
+    "time interval in 2-4 sentences, in chronological order, inside <answer>...</answer>."
+)
+
+
+def render_user_qa(frame_t_sec, duration_s: float, question: str, fmt: str = "seconds") -> str:
+    return f"{render_frame_header(frame_t_sec, duration_s, fmt)}\n<video>\n{question}"
+
+
+def render_user_detection(frame_t_sec, duration_s: float, t0: float, t1: float,
+                          kind: str = "steps", fmt: str = "seconds") -> str:
+    return (f"{render_frame_header(frame_t_sec, duration_s, fmt)}\n<video>\n"
+            f"List the active {kind} in {format_ts(t0, fmt)}-{format_ts(t1, fmt)} s.")
+
+
+def render_user_summary(frame_t_sec, duration_s: float, t0: float, t1: float,
+                        fmt: str = "seconds") -> str:
+    return (f"{render_frame_header(frame_t_sec, duration_s, fmt)}\n<video>\n"
+            f"Summarize {format_ts(t0, fmt)}-{format_ts(t1, fmt)} s of this operation.")
+
+
+def render_answer_labels(labels, think: str | None = None) -> str:
+    body = "" if think is None else f"<think>{think}</think>"
+    inner = ", ".join(str(x) for x in labels) if labels else "none"
+    return body + f"<answer>{inner}</answer>"
+
+
+def render_answer_text(text: str, think: str | None = None) -> str:
+    body = "" if think is None else f"<think>{think}</think>"
+    return body + f"<answer>{text.strip()}</answer>"
+
+
+def parse_labels(text: str) -> list[str]:
+    """Comma / semicolon separated label list from an <answer> block; [] for 'none'."""
+    text = text or ""
+    m = _ANSWER_RE.search(text)
+    inner = (m.group(1) if m else text).strip()
+    if not inner or re.fullmatch(r"(?i)none|n/?a|-", inner):
+        return []
+    return [p.strip() for p in re.split(r"[;,]", inner) if p.strip()]
+
+
+def extract_answer_text(text: str) -> str:
+    """Raw payload inside the first <answer>...</answer>, else the whole string trimmed."""
+    m = _ANSWER_RE.search(text or "")
+    return (m.group(1) if m else (text or "")).strip()
