@@ -4,68 +4,75 @@ centers: [strasbourg, bern]   # StrasBypass70 (~110 min avg), BernBypass70 (~72 
 role: primary_long            # primary long-video + multi-center generalization
 native: video                 # scripts/download/multibypass140.sh -> util/extract_frames.py @1fps
 ann_fps: 1
-# 12 phases / 46 steps / 5 IAE types, verified against the LRYGB ontology figure
-# (static/hierarchy.jpg) in github.com/CAMMA-public/MultiBypass140 (arXiv:2312.11250).
-# phase_names[i] -> phase id i+1 (matches Phase_gt+1 in the repo's label pickles).
+# 14 label ids / 46 steps / 5 IAE types. EMPIRICALLY VERIFIED (zero id/name
+# conflicts) against all 140 per-video label files -- github.com/CAMMA-public/
+# MultiBypass140, labels/{strasbourg,bern}/labels_by70/*.mp4.json (2026-09).
+# 12 are the paper's headline ontology (arXiv:2312.11250); ids 13-14
+# (OutOfBody, SevereIndex) are auxiliary labels present in the shipped data
+# but outside that headline count -- see procedure_graphs/multibypass140.json
+# `notes` for the full methodology (empirical precedence + step/phase purity).
+# phase_names[i] -> phase id i+1 (matches Phase_gt+1 in the label files).
 # step_names[i]  -> step id i    (matches Step_gt directly, 0-based; S0 = null step).
-phase_names:                   # 12
+phase_names:                   # 14 (12 core + 2 auxiliary)
   - Preparation
   - GastricPouchCreation
   - OmentumDivision
   - GastrojejunalAnastomosis
   - AnastomosisTest
   - JejunalSeparation
-  - PetersenSpaceClosure
+  - ClosurePetersenSpace
   - JejunojejunalAnastomosis
-  - MesentericDefectClosure
-  - CleaningAndCoagulation
+  - ClosureMesentericDefect
+  - CleaningCoagulation
   - Disassembling
   - OtherIntervention
+  - OutOfBody
+  - SevereIndex
 step_names:                    # 46 ; parent_phase for each lives in procedure_graphs/multibypass140.json
   - NullStep                          # S0
-  - AbdominalCavityExploration        # S1
+  - CavityExploration                 # S1
   - TrocarPlacement                   # S2
   - RetractorPlacement                # S3
-  - FatPadDissection                  # S4
-  - LesserCurveDissection             # S5
+  - CruraDissection                   # S4
+  - HisAngleDissection                # S5
   - HorizontalStapling                # S6
   - RetrogastricDissection            # S7
   - VerticalStapling                  # S8
   - GastricRemnantReinforcement       # S9
   - GastricPouchReinforcement         # S10
   - GastricOpening                    # S11
-  - OmentumExposure                   # S12
-  - OmentalTransection                # S13
+  - OmentalLifting                    # S12
+  - OmentalSection                    # S13
   - Adhesiolysis                      # S14
   - TreitzAngleIdentification         # S15
   - BiliaryLimbMeasurement            # S16
   - JejunumOpening                    # S17
   - GastrojejunalStapling             # S18
-  - GastrojejunalDefectClosure        # S19
+  - GastrojejunalDefectClosing        # S19
   - MesentericOpening                 # S20
-  - JejunalTransection                # S21
+  - JejunalSection                    # S21
   - GastricTubePlacement              # S22
   - JejunalClamping                   # S23
-  - DyeInjection                      # S24
+  - InkInjection                      # S24
   - VisualAssessment                  # S25
   - GastrojejunalAnastomosisReinforcement  # S26
   - PetersenSpaceExposure             # S27
-  - PetersenSpaceClosureStep          # S28
+  - PetersenSpaceClosing              # S28
   - BiliaryLimbOpening                # S29
   - AlimentaryLimbMeasurement         # S30
   - AlimentaryLimbOpening             # S31
   - JejunojejunalStapling             # S32
-  - JejunojejunalDefectClosure        # S33
+  - JejunojejunalDefectClosing        # S33
   - JejunojejunalAnastomosisReinforcement  # S34
   - StapleLineReinforcement           # S35
   - MesentericDefectExposure          # S36
-  - MesentericDefectClosureStep       # S37
+  - MesentericDefectClosing           # S37
   - AnastomosisFixation               # S38
-  - Hemostasis                        # S39
+  - Coagulation                       # S39
   - IrrigationAspiration              # S40
   - ParietalClosure                   # S41
   - TrocarRemoval                     # S42
-  - SutureOfSmallBowelLesion          # S43
+  - Calibration                       # S43
   - DrainageInsertion                 # S44
   - SpecimenRetrieval                 # S45
 iae_types:                     # 5 + severity 0 (none) - 5

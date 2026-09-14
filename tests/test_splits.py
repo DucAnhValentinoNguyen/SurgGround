@@ -1,6 +1,9 @@
+import pickle
+
 import pytest
 
 from surgground.data.splits import (
+    _official_per_center_split,
     assert_no_center_leak,
     assert_no_video_across_splits,
     grouped_split,
@@ -40,3 +43,33 @@ def test_assert_no_center_leak():
     assert_no_center_leak(["s1", "s2"], ["b1"], center_of)  # ok: disjoint centers
     with pytest.raises(AssertionError):
         assert_no_center_leak(["s1", "b1"], ["b1"], center_of)  # bern leaks
+
+
+def test_official_per_center_split_reads_mbp140_fold_pickles(tmp_path, monkeypatch):
+    # Mirrors the real on-disk layout confirmed from CAMMA-public/MultiBypass140:
+    # labels/<center>/labels_by70_splits/labels/{train,val,test}/1fps_[100_]<fold>.pickle
+    # each a {video_id: [per-frame label dict, ...]} mapping.
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    root = tmp_path / "raw" / "MultiBypass140" / "labels"
+    fake_frame = [{"Frame_id": "x", "Phase_gt": 0, "Step_gt": 0}]
+    per_center = {
+        "strasbourg": ("SBP", {"train": ["01", "02"], "val": ["03"], "test": ["04"]}),
+        "bern": ("BBP", {"train": ["01"], "val": ["02"], "test": []}),
+    }
+    for center, (prefix, folds) in per_center.items():
+        splits_dir = root / center / "labels_by70_splits" / "labels"
+        for sub, name, vids in (
+            ("train", "1fps_100_0.pickle", folds["train"]),
+            ("val", "1fps_0.pickle", folds["val"]),
+            ("test", "1fps_0.pickle", folds["test"]),
+        ):
+            d = splits_dir / sub
+            d.mkdir(parents=True, exist_ok=True)
+            with open(d / name, "wb") as f:
+                pickle.dump({f"{prefix}{v}": fake_frame for v in vids}, f)
+
+    split = _official_per_center_split(parser=None, video_ids=[])
+    assert set(split["train"]) == {"SBP01", "SBP02", "BBP01"}
+    assert set(split["val"]) == {"SBP03", "BBP02"}
+    assert set(split["test"]) == {"SBP04"}
+    assert_no_video_across_splits(split)

@@ -63,8 +63,13 @@ def _jpg_dims(path: str | Path) -> tuple[int, int]:
 
 
 def _frame_idx(p: Path) -> int:
-    digits = "".join(ch for ch in p.stem if ch.isdigit())
-    return int(digits) if digits else 0
+    """Trailing digit run in the filename stem (e.g. ``SBP01_00000001`` -> 1;
+    ``000042`` -> 42). Must not concatenate every digit in the name -- a
+    dataset-id prefix like ``SBP01_`` would otherwise corrupt the index."""
+    import re
+
+    m = re.search(r"(\d+)$", p.stem)
+    return int(m.group(1)) if m else 0
 
 
 # --------------------------------------------------------------------------- #

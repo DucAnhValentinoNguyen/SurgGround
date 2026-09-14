@@ -70,26 +70,36 @@ def load_split(dataset: str, cfg) -> dict:
     raise ValueError(f"unknown split scheme {scheme!r} for dataset {dataset!r}")
 
 
-def _official_per_center_split(parser, video_ids) -> dict:
-    """MultiBypass140's `git clone` ships per-center official folds under
-    `labels/{bern,strasbourg}/labels_by70_splits/`. Exact filenames are
-    unverified until the clone lands (P1 DoD spot-check); fall back to a
-    center-stratified grouped split so the caller still gets a valid partition.
+def _official_per_center_split(parser, video_ids, fold: int = 0) -> dict:
+    """MultiBypass140's `git clone` ships **5-fold** official per-center splits
+    as pickles: `labels/<center>/labels_by70_splits/labels/{train,val,test}/
+    1fps_{100_,}<fold>.pickle` (train files are named `1fps_100_<fold>.pickle`;
+    val/test are `1fps_<fold>.pickle`), each a `{video_id: [per-frame label
+    dict, ...]}` mapping -- confirmed by loading the repo's Strasbourg *and*
+    Bern fold-0 pickles (40/10/20 videos per center, no id overlap between
+    train/val/test). We only need the video-id keys here (the frame-level
+    labels are read by the `multibypass140.Parser` from the per-video JSON in
+    `labels_by70/`, not from these fold pickles). Default `fold=0`.
     """
+    import pickle
+
     data_root = Path(os.environ.get("DATA_ROOT", str(_ROOT / "_data")))
     labels_root = data_root / "raw" / "MultiBypass140" / "labels"
     out: dict[str, list] = {"train": [], "val": [], "test": []}
     for center in ("strasbourg", "bern"):
-        split_dir = labels_root / center / "labels_by70_splits"
+        split_dir = labels_root / center / "labels_by70_splits" / "labels"
         if not split_dir.is_dir():
             continue
-        for split_name in ("train", "val", "test"):
-            for m in sorted(split_dir.glob(f"*{split_name}*")):
-                if m.is_file():
-                    out[split_name].extend(
-                        ln.strip() for ln in m.read_text().splitlines() if ln.strip())
-                elif m.is_dir():
-                    out[split_name].extend(p.stem for p in sorted(m.glob("*")))
+        files = {
+            "train": split_dir / "train" / f"1fps_100_{fold}.pickle",
+            "val": split_dir / "val" / f"1fps_{fold}.pickle",
+            "test": split_dir / "test" / f"1fps_{fold}.pickle",
+        }
+        for split_name, pkl in files.items():
+            if not pkl.is_file():
+                continue
+            with open(pkl, "rb") as f:
+                out[split_name].extend(sorted(pickle.load(f).keys()))
 
     if any(out.values()):
         return out
