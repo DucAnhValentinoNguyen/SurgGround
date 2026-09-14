@@ -1,18 +1,22 @@
 {
   "dataset": "grasp",
-  "_todo": "P1: fill exact phase + step names (with parent_phase) from the GraSP/PSI-AVA ontology (arXiv:2401.11174). Below is a placeholder with only clinically-hard orderings for robot-assisted radical prostatectomy.",
+  "_verify_p1": "Phase COUNT (11) is confirmed from github.com/BCV-Uniandes/GraSP Images/dataset.jpg ('11 Phases / 21 Steps / 14 Atomic Actions / 7 Instrument types', TAPIS/configs/GraSP/TAPIS/TAPIS_PHASES.yaml TASKS.NUM_CLASSES=[11]) and matches PSI-AVA/GraSP (arXiv:2401.11174). The dataset figure and repo code do not ship the phase/step NAME strings (only numeric ids + two example captions: 'Left pelvic isolated lymphadenectomy' and 'Severing of the prostate from the urethra', both corroborated below) -- exact names + the 21-step list are not independently verifiable without the gated Google Drive annotation JSON (scripts/download/grasp.sh). Phases below are a literature-informed best effort (standard RARP step breakdown); re-verify against the shipped JSON 'categories' field once grasp.sh lands and update this file + config/data/grasp.yaml together, then drop this key.",
   "phases": [
-    {"id": 1, "name": "BladderNeckDissection"},
-    {"id": 2, "name": "SeminalVesicleDissection"},
-    {"id": 3, "name": "PosteriorDissection"},
-    {"id": 4, "name": "EndopelvicFasciaIncision"},
-    {"id": 5, "name": "ApicalDissection"},
-    {"id": 6, "name": "UrethralDivision"},
-    {"id": 7, "name": "PosteriorAnastomosis"},
-    {"id": 8, "name": "AnteriorAnastomosis"}
+    {"id": 1, "name": "TrocarPlacementAndDocking"},
+    {"id": 2, "name": "PelvicLymphadenectomy"},
+    {"id": 3, "name": "BladderNeckDissection"},
+    {"id": 4, "name": "SeminalVesicleDissection"},
+    {"id": 5, "name": "PosteriorDissection"},
+    {"id": 6, "name": "EndopelvicFasciaIncision"},
+    {"id": 7, "name": "ApicalDissection"},
+    {"id": 8, "name": "UrethralDivision"},
+    {"id": 9, "name": "NeurovascularBundlePreservation"},
+    {"id": 10, "name": "PosteriorAnastomosis"},
+    {"id": 11, "name": "AnteriorAnastomosis"}
   ],
   "steps": [],
-  "hard_precede": [[2, 5], [3, 5], [6, 7], [7, 8]],
-  "soft_precede": [[1, 2], [4, 5]],
-  "mutually_exclusive_at_t": true
+  "hard_precede": [[1, 2], [4, 7], [5, 7], [8, 10], [10, 11]],
+  "soft_precede": [[2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10]],
+  "mutually_exclusive_at_t": true,
+  "notes": "Robot-assisted radical prostatectomy (GraSP/PSI-AVA, arXiv:2401.11174). 13 videos, ~149 min avg. Phase count (11) confirmed from the repo figure; exact names are best-effort pending the shipped annotation JSON (see _verify_p1). 21 steps not modeled yet (no evidence available offline) -- step_timeline() should fall back to [] until the real step list is filled from the downloaded data. hard_precede: docking before lymphadenectomy; seminal-vesicle & posterior dissection before apical dissection; urethral division before the vesico-urethral (posterior) anastomosis; posterior anastomosis before its anterior closure. mutually_exclusive_at_t: true (single active phase, per PSI-AVA)."
 }
