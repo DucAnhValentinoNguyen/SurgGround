@@ -9,7 +9,7 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 - **Active phases:** **P1 on helena** (data, downloads running) ∥ **P2 on biostat** (tasks + metrics, in review), in parallel
 - **Active branch:** `feat/p01-data` (helena) · `feat/p02-tasks-metrics` (biostat, in review)
-- **Last updated:** 2026-09-14 — `/data/surgground` created; P1 downloads running on helena (Cholec80 landed, GraSP in progress); P2 DoD green on biostat, PR pending
+- **Last updated:** 2026-09-14 — `/data/surgground` created; P1 downloads running on helena (Cholec80 + GraSP landed, MultiBypass140 in progress after a disk-safety fix); P2 DoD green on biostat, PR pending
 - **Overall:** **P0 done** — importable `surgground` package, `pyproject.toml`,
   `config/`, env/setup/sync scripts, `lrz/` stubs, 4 procedure graphs, and
   working implementations of the pure modules (cfg, procedure_graph, rewards,
@@ -57,7 +57,7 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
 | **P0** Scaffold + env + config | biostat | **done** (this commit) | planning session | `feat/p00-scaffold` -> `main` | 65 py files compile; `pytest -q` green (36 pass / 4 skip) on numpy+scipy+sklearn+omegaconf; `run_eval --help` works. Each box still runs `setup_env_4090.sh` + `pytest` to verify locally (P0 DoD). |
-| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — code done, **downloads running** | cc-sonnet-p01 | `feat/p01-data` | **Code complete, pytest -q green (60 pass/4 skip), ruff clean.** `/data/surgground` created 2026-09-14; Cholec80 landed (`raw/cholec80/` 96 GB — bigger than docs' ~35 GB estimate, `docs/DATASETS.md` needs a line fix); GraSP downloading (fixed 2 real bugs in `grasp.sh`, see handoff: unsupported `--remaining-ok` flag, and it was about to pull the full 30fps+videos tree instead of just the 1fps subset). **Not done: DoD** — no `index.parquet` yet, no spot-checks, MultiBypass140 not launched yet. |
+| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — code done, **downloads running** | cc-sonnet-p01 | `feat/p01-data` | **Code complete, pytest -q green (60 pass/4 skip), ruff clean.** `/data/surgground` created 2026-09-14; Cholec80 landed (`raw/cholec80/` 96 GB — bigger than docs' ~35 GB estimate, `docs/DATASETS.md` needs a line fix); GraSP landed (`raw/grasp/` 14 GB, `annotations/` + `frames/`, fixed 2 real bugs in `grasp.sh`, see handoff). MultiBypass140 launched after fixing a real bug found live (see latest handoff: `multibypass140.sh` assumed one zip layout, real S3 zips mix wrapped/unwrapped -> filled `/home` to 0 with zero frames produced; killed, fixed, verified, relaunched). **Not done: DoD** — no `index.parquet` yet, no spot-checks. |
 | **P2** Task construction + metric modules | biostat | **in review (PR pending)** | agent-sonnet5 | `feat/p02-tasks-metrics` | DoD green: `pytest -q` -> `70 passed, 2 skipped` (the 2 skips are P4/model-only: `test_recursive.py`, `test_temporal_connector.py`). `python -m surgground.data.tasks --dataset standin --split val --write --shards` writes `standin_val.jsonl` (84 items) + `standin_val_shards/shard-000000.tar` + `manifest.json`, prints a task/sub_type histogram + regime counts + abstain count. `tests/test_aggregate.py` feeds 2 fake `results/*.json` through `aggregate.py` and asserts a correct length-bucketed pivot. `ruff check surgground/ tests/` clean except one pre-existing P0 finding in `train/rewards.py` (not touched this phase). Implemented: `data/{tasks,standin,shards,qa_synth}.py` (new), `data/collate.py` (pure helpers; `Collator.__call__` stays P4), `data/templates.py` (append-only: T2/T3/T4/T5/T6 render+parse added, existing grounding functions untouched), `eval/{detection,qa,summary,efficiency,aggregate}.py`. Reused as-is: `eval/{grounding,phase,rsd,reliability}.py`, `data/regime.py`, `models/procedure_graph.py`. **T7 (IAE) intentionally deferred** — needs real MultiBypass140 adverse-event labels from P1, not synthesizable from the stand-in. Stand-in: `data/standin.py` (parses Charades-STA txt under `<data_root>/raw/charades_sta/` if present from `scripts/download/charades_sta.sh`, else deterministic synthetic surgical timelines spanning all 3 regimes); imported directly in `tasks.py`, **not** routed through `data/registry.py` (left untouched, P1/helena's). P1 parsers/`procedure_graphs/*` untouched. Env: re-ran `bash scripts/setup_env_4090.sh` (biostat) — clean capability report (RTX 4090 24 GB, torch 2.5.1+cu121, `bnb 4-bit OK`, `surgground importable`; flash-attn/mamba-ssm skipped, both optional per ADR-010/DoD). |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
@@ -73,7 +73,64 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-14 (latest) — `/data/surgground` created; P1 downloads launched; grasp.sh disk-safety fix
+### 2026-09-14 (latest) — GraSP landed; multibypass140.sh disk-fill incident, fixed, relaunched
+
+**GraSP finished landing** (no fix needed beyond the two already noted below):
+`raw/grasp/{annotations,frames,README.txt}`, 14 GB.
+
+**Then launched `multibypass140.sh` (as-is from the earlier P1 session) and it
+filled `/home` to 0 bytes free with zero frames produced.** Root cause found
+live: the script's `extract_one_centre()` assumed every S3 zip extracts to a
+flat `$SCRATCH/datasets/MultiBypass140/<centre>/videos/` path. Real zips don't
+agree on layout — `multibypass01_corrected.zip` wraps its content in a
+top-level dir matching the zip's own name
+(`.../multibypass01_corrected/BernBypass70/videos/...`), while
+`multibypass04.zip` extracts `StrasBypass70/videos/...` directly with no
+wrapper. So every wrapped zip's ~40-90 GB of video was silently never found,
+never processed, never deleted — it just piled up on `/home` across zips
+01->04 until a real disk-full write error hit mid-unzip on zip 04 and `unzip`
+hung waiting on an interactive overwrite/retry prompt that a backgrounded job
+can never answer. `/home` went from 242 GB free to 0; `/data` (NVMe) was
+untouched the whole time (frame output dir never got created, since
+`extract_one_centre` never found any videos to extract) — **zero data lost**,
+confirmed before cleanup.
+
+**Recovery:** killed the hung `unzip`/`multibypass140.sh` processes, deleted
+`$HOME/mbp140_scratch` entirely (~242 GB reclaimed). The MultiBypass140 git
+clone itself (labels + `util/extract_frames.py`, 178 MB, at
+`raw/MultiBypass140/`) was untouched, still on `/data`.
+
+**Fix, in `scripts/download/multibypass140.sh`:** replaced the fixed-path
+`extract_one_centre()` with `process_scratch_videos()`, which runs `find
+"$SCRATCH" -type d -iname videos` after every zip (regardless of nesting
+depth), infers the centre from the matched path (`*[Ss]tras*` /
+`*[Bb]ern*`), extracts via `extract_frames.py` (ffmpeg fallback kept), then
+deletes the source videos — plus a blanket non-zip sweep of `$SCRATCH`
+between zips as a second safety net so nothing "unrecognised" can silently
+accumulate either. `unzip` now reads from `/dev/null` so any future
+interactive prompt fails fast instead of hanging an unattended job forever.
+Verified with a synthetic dry run reproducing both the wrapped and unwrapped
+layouts found in the real zips (`ffmpeg -f lavfi testsrc` clips) — both
+centres correctly detected, frames produced, source videos cleaned up.
+Committed (`76c2ae1`).
+
+**Relaunched** `bash scripts/download/multibypass140.sh` detached
+(`nohup ... > /tmp/dl_mbp140.log 2>&1 &`), confirmed `aria2c` pulling
+`multibypass01_corrected.zip` (the wrapped-layout one that exposed the bug)
+with 8 connections. Disk at launch: NVMe (`/data`) 207 GB free, HDD (`/home`)
+242 GB free (post-recovery). **PID/log:** parent bash PID `694620`,
+`/tmp/dl_mbp140.log`; watch with `tail -f /tmp/dl_mbp140.log` and
+`df -h /data /home`.
+
+**Next concrete action:** let it run to completion (6 zips: 01_corrected,
+02, 03, 04, 05, 06_corrected), watching `df -h /data /home` doesn't trend
+toward full again (it shouldn't now — cleanup happens after every single
+zip, not just at the end). Once done: `raw/MultiBypass140/datasets/
+MultiBypass140/{StrasBypass70,BernBypass70}/frames/` should hold 1fps JPEGs
+for all 140 videos. Then proceed with the P1 DoD steps already queued below
+(smoke_decode.sh, parser spot-checks, index.parquet, PR).
+
+### 2026-09-14 — `/data/surgground` created; P1 downloads launched; grasp.sh disk-safety fix
 
 User ran the `sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground`
 from the note below. `source scripts/env_4090.sh` confirms
