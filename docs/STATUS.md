@@ -9,7 +9,7 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 - **Active phases:** **P1 on helena** (data) ∥ **P2 on biostat** (tasks + metrics), in parallel
 - **Active branch:** `feat/p01-data` (helena) · `feat/p02-tasks-metrics` (biostat)
-- **Last updated:** 2026-09-07 — P0 scaffold pushed
+- **Last updated:** 2026-09-14 — P1 code complete on helena; **blocked on `/data/surgground`**, no downloads started yet
 - **Overall:** **P0 done** — importable `surgground` package, `pyproject.toml`,
   `config/`, env/setup/sync scripts, `lrz/` stubs, 4 procedure graphs, and
   working implementations of the pure modules (cfg, procedure_graph, rewards,
@@ -57,7 +57,7 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
 | **P0** Scaffold + env + config | biostat | **done** (this commit) | planning session | `feat/p00-scaffold` -> `main` | 65 py files compile; `pytest -q` green (36 pass / 4 skip) on numpy+scipy+sklearn+omegaconf; `run_eval --help` works. Each box still runs `setup_env_4090.sh` + `pytest` to verify locally (P0 DoD). |
-| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** | cc-sonnet-p01 | `feat/p01-data` | Stubs to fill: `surgground/data/{grasp,multibypass140,cholec80,cholect50,autolaparo,heichole}.py`, `decode.py`, `splits.py`; rewrite `scripts/download/multibypass140.sh` (centre-interleaved, ADR-014a); finalize `procedure_graphs/{grasp,multibypass140}.json` `_todo`. GraSP ships frames; rest ship video -> @1fps. `rsync` eval subsets to biostat after. |
+| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — code done, **blocked on data** | cc-sonnet-p01 | `feat/p01-data` | **Code complete, pytest -q green (60 pass/4 skip), ruff clean** (see 2026-09-14 handoff for full evidence). **Not done: DoD.** No dataset has downloaded yet — `/data/surgground` still doesn't exist (B2a), so `scripts/download/*.sh` cannot run at all. `index.parquet` for GraSP/MultiBypass140/Cholec80 does not exist; 5-video spot-checks not run. |
 | **P2** Task construction + metric modules | biostat | **ready** (P0 done; use `charades_sta.sh` stand-in) | — | `feat/p02-tasks-metrics` | Stubs to fill: `data/tasks.py`, `shards.py`, `collate.py`, `qa_synth.py`; `eval/{detection,qa,summary,efficiency,aggregate}.py`. **Done already:** `eval/{grounding,phase,rsd,reliability}.py` + `data/{templates,regime}.py` + tests. |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
@@ -73,7 +73,119 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-08 (latest) — helena data-root decided (ADR-014a); MBP140 disk fix
+### 2026-09-14 (latest) — P1 code complete on helena; still blocked on `/data/surgground`
+
+**Blocker unchanged since 2026-09-08 and still open:** `/data/surgground` does
+not exist. It needs one `sudo` command the agent cannot run itself:
+```
+sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground
+```
+Until that exists, `scripts/download/_common.sh`'s `mkdir -p "$RAW"`
+hard-fails (`set -euo pipefail`) and **no download has been attempted this
+session** — not even the three ungated ones. **This is the single next
+action**; everything else in P1 is code-complete and waiting on it.
+
+**What got done (all data-independent code + as much verification as possible
+without the real datasets):**
+- `surgground/data/decode.py` — `decode_video` (idempotent ffmpeg), `extract_window`
+  (LRU-capped hi-fps cache), `build_index` (parquet + provenance sidecar). Found
+  and fixed a real bug in the frame-index parser (`_frame_idx` was
+  concatenating every digit in a filename instead of taking the trailing run —
+  would have corrupted ordering for MultiBypass140's own
+  `<video>_<frame>.jpg` naming). Verified end-to-end against synthetic ffmpeg
+  clips (idempotent re-decode, correct parquet schema/values).
+- `surgground/data/splits.py` — `load_split` (dispatches on each
+  `config/data/<ds>.yaml` `split.scheme`), `grouped_split` (seeded,
+  center-stratifiable), `assert_no_center_leak`. `_official_per_center_split`
+  reads MultiBypass140's real 5-fold pickle layout (see below) — verified
+  against the actual repo data (80/20/40 videos, fold 0, no overlap).
+- **All six `surgground/data/<ds>.py` parsers implemented** (`Parser.iter_videos
+  /phase_timeline/step_timeline/triplet_runs/duration_s/domain/center`),
+  `registry.get_parser` confirmed resolving all six:
+  - **multibypass140.py** — fully ground-truthed. Cloned
+    `github.com/CAMMA-public/MultiBypass140` to `/tmp` (labels/code only, no
+    video) and ran the real parser against all 140 real label files: every
+    `phase_id`/`step_id` produced is valid in `procedure_graphs/multibypass140.json`
+    (0 mismatches), `load_split` partitions all 140 videos with zero overlap.
+    Rewrote `procedure_graphs/multibypass140.json` + `config/data/multibypass140.yaml`
+    from a **literature guess to an empirically verified ontology**: 14 label
+    ids found in the shipped data (12 headline + `OutOfBody`/`SevereIndex`
+    auxiliary, zero name conflicts across all 140 files), `hard_precede` and
+    step `parent_phase` derived from actual phase-order-consistency and
+    step/phase co-occurrence-purity statistics across all 140 videos (not
+    guessed) — e.g. phases 5-9 interleave heavily in real surgical workflow
+    (order-consistency 0.14-0.93), so no precedence is claimed there.
+  - **cholec80.py / cholect50.py** — cholec80 uses the standard
+    Twinanda/EndoNet `phase_annotations/videoNN-phase.txt` layout (well-known,
+    high confidence). cholect50 schema (per-video JSON, 15-item instance
+    vectors) confirmed by cloning `github.com/CAMMA-public/cholect50`
+    (docs/README-Format.md + the `var.png` vector-layout figure) — the actual
+    label data is still gated (needs `CHOLECT50_URL=`), so only the *parser
+    code* is verified (synthetic fixture), not against real files. Found the
+    official 5-fold CV split figure in that repo too but **deliberately did
+    not hand-transcribe the 50 video-id list from the image** — real risk of a
+    silent, hard-to-catch train/test-leakage bug; `splits.py`'s `rdv` scheme
+    keeps its seeded fallback.
+  - **autolaparo.py / heichole.py** — no public label-format repo exists for
+    either (tried several plausible AutoLaparo GitHub names, all 404).
+    Implemented as deliberately tolerant parsers (try a few conventional
+    file locations, accept tab/comma-separated rows, derive time from row
+    ordinal / `phase_ann_fps`) with a docstring flag to verify against the
+    first 5 downloaded videos (P1 DoD) and adjust if the real layout differs.
+  - **grasp.py** — schema (COCO-style `images`+`annotations`, frame-level
+    `phases`/`steps` int ids) confirmed by reading
+    `TAPIS/tapis/datasets/surgical_dataset_helper.py` in
+    `github.com/BCV-Uniandes/GraSP` (cloned; actual annotation JSON is gated
+    behind Google Drive). One thing explicitly flagged as unverified: the
+    `frame_num -> seconds` mapping — the repo's own `keyframe_mapping()` uses a
+    nontrivial `round(sec*30/45)` transform for most videos that this parser
+    does not replicate (uses `frame_num/ann_fps` instead); P1 DoD spot-check
+    item. `procedure_graphs/grasp.json` phase **count** (11) is confirmed from
+    that repo's figure + `TASKS.NUM_CLASSES`, but exact phase **names** are a
+    literature-informed best effort (flagged `_verify_p1` in the JSON) — GraSP
+    has no public ontology text to clone, unlike MultiBypass140.
+- `scripts/download/multibypass140.sh` **rewritten** per ADR-014a: processes
+  one S3 zip at a time (tighter than "one centre" — self-adapting, since the
+  zip→centre file mapping isn't knowable without downloading), scratch on
+  `$HOME/mbp140_scratch` (HDD), frames land on `$DATA_ROOT` (NVMe) via
+  `extract_frames.py` with an ffmpeg fallback. Dry-ran the ffmpeg-fallback
+  branch against a synthetic clip — correct frame count + numbering, scratch
+  video deleted after.
+- `tests/smoke_decode.sh` implemented — decodes up to 2 videos/dataset, checks
+  frame count vs ffprobe duration (±2) and the parquet schema; reports a clean
+  skip (exit 0) when a dataset's raw dir isn't present yet, so it stays
+  runnable mid-download. Verified both states: current "nothing to test yet"
+  (real) and a synthetic dry run with fake data (full pipeline passes).
+- 8 new test files (`test_splits`, `test_multibypass140_parser`,
+  `test_cholec80_parser`, `test_cholect50_parser`, `test_autolaparo_parser`,
+  `test_heichole_parser`, `test_grasp_parser`); `pytest -q` **60 passed, 4
+  skipped** (was 36 pass/4 skip at P0); `ruff check surgground tests` clean
+  except one pre-existing, out-of-scope finding in `train/rewards.py` (not
+  touched this session).
+- `PLAN.md` / `docs/DATASETS.md` **not touched** — nothing in them turned out
+  to be wrong; the one real layout surprise (MultiBypass140's exact ontology)
+  only affected `procedure_graphs/` + `config/data/`, already covered above.
+
+**PIDs / logs:** none — no download was ever launched (blocked before step 1).
+
+**Next concrete action (next session or once the user runs the sudo command):**
+1. `sudo mkdir -p /data/surgground && sudo chown -R "$USER" /data/surgground`.
+2. `source scripts/env_4090.sh`, confirm `DATA_ROOT=/data/surgground`.
+3. Launch `cholec80.sh` + `grasp.sh` detached (`nohup ... > /tmp/dl_*.log 2>&1 &`,
+   record PIDs here); once they land, launch the rewritten `multibypass140.sh`
+   (or run it with a `df -h /data /home` guard alongside them — see ADR-014a
+   footprint math, ~210-300 GB final, tight against 291 GB free).
+4. Once Cholec80 lands: `bash tests/smoke_decode.sh`, eyeball 5
+   `cholec80.py` `phase_timeline()` outputs against the raw `.txt` files, spot-check the
+   `autolaparo.py`/`heichole.py`/`grasp.py` parsers' assumptions the same way
+   once their data lands (see per-parser caveats above) and fix `_LABEL_GLOBS`
+   / `_frame_to_t` if the real layout differs.
+5. Once GraSP + MultiBypass140 + a Cholec set all have an `index.parquet`: the
+   P1 DoD is met — `pytest tests/test_procedure_graph.py` + `bash
+   tests/smoke_decode.sh` green, evidence pasted into the P1 row above, PR
+   `feat/p01-data` -> `main`.
+
+### 2026-09-08 — helena data-root decided (ADR-014a); MBP140 disk fix
 helena bring-up found the NVMe `/` has no user-writable dir and no passwordless
 sudo -> `_common.sh` `mkdir` fails, no download can start. **Decision (ADR-014a):**
 user runs `sudo mkdir -p /data/surgground && sudo chown -R $USER /data/surgground`
