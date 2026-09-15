@@ -7,9 +7,9 @@ Convert relative dates to absolute (UTC). Newest handoff note first.
 
 ## Snapshot
 
-- **Active phases:** **P1 on helena** (data, downloads running) — **P2 merged to `main`** (PR #1, 05a87ea) and **P1's parsers/decode/splits merged to `main`** (PR #2, 5b9a8e6); this session's fixes are 5 commits ahead of `origin/feat/p01-data`, not yet pushed/PR'd
-- **Active branch:** `feat/p01-data` (helena, 5 commits ahead of origin, unpushed)
-- **Last updated:** 2026-09-15 — smoke_decode.sh green for Cholec80 (real decode) + GraSP (real index); GraSP's phase/step/action/instrument names **ground-truthed** against the real shipped annotation JSON, catching a real parser bug (`grasp.py`'s id offset made "Idle" invisible + produced a phantom phase id); MultiBypass140 hit a **third** real bug live (`set -e`+`pipefail` silently killed the whole script on a video-less zip), fixed, relaunched -- download still in progress
+- **Active phases:** **P1 DoD complete on helena** (data acquisition + decode + index — Cholec80, GraSP, MultiBypass140 all landed and verified), PR pending — **P2 merged to `main`** (PR #1, 05a87ea) and **P1's parsers/decode/splits merged to `main`** (PR #2, 5b9a8e6); this session's 8 commits are ahead of `origin/feat/p01-data`, not yet pushed/PR'd
+- **Active branch:** `feat/p01-data` (helena, 8 commits ahead of origin, unpushed)
+- **Last updated:** 2026-09-15 — **P1 DoD complete**: MultiBypass140 download finished (all 140 videos) after fixing a third live bug; `smoke_decode.sh` green for all three required datasets (Cholec80, GraSP, MultiBypass140 -- the last of which the smoke test was silently never actually checking, also fixed); GraSP's ontology ground-truthed against real data, catching a real parser id-offset bug; splits + `test_procedure_graph.py` verified; ready to push + open PR
 - **Overall:** **P0 done** — importable `surgground` package, `pyproject.toml`,
   `config/`, env/setup/sync scripts, `lrz/` stubs, 4 procedure graphs, and
   working implementations of the pure modules (cfg, procedure_graph, rewards,
@@ -57,7 +57,7 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 | Phase | Box | Status | Owner | Branch | DoD evidence / notes |
 |---|---|---|---|---|---|
 | **P0** Scaffold + env + config | biostat | **done** (this commit) | planning session | `feat/p00-scaffold` -> `main` | 65 py files compile; `pytest -q` green (36 pass / 4 skip) on numpy+scipy+sklearn+omegaconf; `run_eval --help` works. Each box still runs `setup_env_4090.sh` + `pytest` to verify locally (P0 DoD). |
-| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — parsers/decode/splits **merged to `main`** (PR #2, 5b9a8e6), **downloads still running** | cc-sonnet-p01 | `feat/p01-data` (5 commits ahead of origin, unpushed) | **Code merged, pytest -q green (93 pass/2 skip), ruff clean.** Cholec80 landed (`raw/cholec80/` 71 GB) and `smoke_decode.sh`-verified: real ffmpeg decode of 2 videos, frame counts match ffprobe duration exactly, `index.parquet` built, 80/80 videos found by the parser, phase timelines spot-checked (plausible boundaries). GraSP landed (`raw/grasp/` 14 GB) and `smoke_decode.sh`-verified: 116,521 frames / 13 videos indexed; its phase/step/action/instrument names were **ground-truthed** against the real shipped annotation JSON (was a pre-download literature guess), which caught a real parser bug (`grasp.py`'s `+1` id offset made "Idle" — the single most common phase label — invisible and produced a phantom phase id 11); `hard_precede`/`soft_precede` rebuilt from real per-video order-consistency across all 13 videos. MultiBypass140 hit **three** real bugs live in `multibypass140.sh`, all found live, all recovered/fixed with **zero data loss** — (1) wrapped-vs-unwrapped zip layout (`76c2ae1`), (2) the unwrapped path shared across multiple zips so one zip's whole-batch extraction could need ~256 GB at once (`6f93307`, stream one video at a time), (3) `set -e`+`pipefail` silently killing the whole script on a zip with zero video entries (most recent commit) — see handoff for all three. **Not done: DoD** — MultiBypass140 download still in progress (relaunched under fix #3), no `index.parquet` for it yet, its parser not yet spot-checked against real files, fixes not yet pushed/PR'd. |
+| **P1** Data acquisition + decode + index | helena | **claimed by cc-sonnet-p01 on helena @ 2026-09-08T21:52Z** — **DoD complete 2026-09-15**, PR pending | cc-sonnet-p01 | `feat/p01-data` (8 commits ahead of origin, unpushed) | **DoD met per PLAN.md P1** (`index.parquet` for GraSP + MultiBypass140 + >=1 Cholec set; split asserts pass; phase/step timelines spot-checked for 5 videos/dataset; `pytest tests/test_procedure_graph.py` green) and **Smoke green** (`bash tests/smoke_decode.sh`). Evidence: Cholec80 (`raw/cholec80/` 71 GB) — real ffmpeg decode of 2 videos, frame counts exact vs ffprobe duration, `index.parquet` built, 80/80 videos found, 5-video phase-timeline spot-check monotonic+in-bounds. GraSP (`raw/grasp/` 14 GB, 13 videos) — 116,521 frames indexed; ontology **ground-truthed** against the real shipped annotation JSON (was a pre-download literature guess), catching a real parser bug (`grasp.py`'s `+1` id offset made "Idle" — the single most common phase label — invisible, produced a phantom phase id 11); `hard_precede`/`soft_precede` rebuilt from real per-video order-consistency; 5-video spot-check monotonic+in-bounds. MultiBypass140 (`raw/MultiBypass140/` ~24 GB extracted frames, 140 videos: 70 Bern + 70 Stras) — survived **three** real live bugs in `multibypass140.sh`, all recovered/fixed with **zero data loss**: (1) wrapped-vs-unwrapped zip layout (`76c2ae1`), (2) whole-zip extraction needing ~256 GB peak disk at once, fixed to stream one video at a time (`6f93307`), (3) `set -e`+`pipefail` silently killing the script on a video-less zip (`c38ac1a`); 781,598 frames indexed after also fixing `smoke_decode.sh` itself (it claimed MultiBypass140 coverage but never actually checked it); 5-video spot-check per center, phase overlap in the OutOfBody/SevereIndex auxiliary labels confirmed as already-documented real behavior (`procedure_graphs/multibypass140.json` notes), not a new bug. `pytest -q`: 93 passed, 2 skipped; ruff clean (one pre-existing, out-of-scope `rewards.py` B905 finding, untouched). **Not done:** AutoLaparo/HeiChole not attempted this session (optional per PLAN.md Goal, "as available", not required for DoD); branch not yet pushed/PR'd. |
 | **P2** Task construction + metric modules | biostat | **in review (PR pending)** | agent-sonnet5 | `feat/p02-tasks-metrics` | DoD green: `pytest -q` -> `70 passed, 2 skipped` (the 2 skips are P4/model-only: `test_recursive.py`, `test_temporal_connector.py`). `python -m surgground.data.tasks --dataset standin --split val --write --shards` writes `standin_val.jsonl` (84 items) + `standin_val_shards/shard-000000.tar` + `manifest.json`, prints a task/sub_type histogram + regime counts + abstain count. `tests/test_aggregate.py` feeds 2 fake `results/*.json` through `aggregate.py` and asserts a correct length-bucketed pivot. `ruff check surgground/ tests/` clean except one pre-existing P0 finding in `train/rewards.py` (not touched this phase). Implemented: `data/{tasks,standin,shards,qa_synth}.py` (new), `data/collate.py` (pure helpers; `Collator.__call__` stays P4), `data/templates.py` (append-only: T2/T3/T4/T5/T6 render+parse added, existing grounding functions untouched), `eval/{detection,qa,summary,efficiency,aggregate}.py`. Reused as-is: `eval/{grounding,phase,rsd,reliability}.py`, `data/regime.py`, `models/procedure_graph.py`. **T7 (IAE) intentionally deferred** — needs real MultiBypass140 adverse-event labels from P1, not synthesizable from the stand-in. Stand-in: `data/standin.py` (parses Charades-STA txt under `<data_root>/raw/charades_sta/` if present from `scripts/download/charades_sta.sh`, else deterministic synthetic surgical timelines spanning all 3 regimes); imported directly in `tasks.py`, **not** routed through `data/registry.py` (left untouched, P1/helena's). P1 parsers/`procedure_graphs/*` untouched. Env: re-ran `bash scripts/setup_env_4090.sh` (biostat) — clean capability report (RTX 4090 24 GB, torch 2.5.1+cu121, `bnb 4-bit OK`, `surgground importable`; flash-attn/mamba-ssm skipped, both optional per ADR-010/DoD). |
 | **P3** Zero-shot baseline harness | biostat | not started | — | — | **FIRST RESULTS.** Depends on P2. biostat holds the 7B + judge weights. |
 | **P4** TemporalConnector + QLoRA SFT | helena | not started | — | — | **COMPLETE RESULT gate.** Depends on P3. After each run: `sync_checkpoints.sh push`. |
@@ -73,7 +73,65 @@ Status values: `open` · `claimed by <tag> @ <UTC>` · `blocked (<Bn>)` ·
 
 ## Handoff notes (newest first)
 
-### 2026-09-15 (latest) — smoke_decode.sh green for Cholec80+GraSP; GraSP ontology ground-truthed (real bug caught); third multibypass140.sh bug (silent set -e/pipefail death), fixed, relaunched
+### 2026-09-15 (latest, part 2) — P1 DoD complete: MultiBypass140 finished, smoke_decode.sh's missing check fixed, full DoD verified
+
+Continuation of the same session as the note directly below. The relaunched
+MultiBypass140 download (PID `828855`, third fix in place) finished cleanly
+this time -- no further silent deaths. Verified: 140/140 videos have frames
+(70 `StrasBypass70` + 70 `BernBypass70`), `mbp140_scratch/` fully cleaned up,
+`/home` back to 272 GB free, `/data` steady at 183 GB free.
+
+Ran `smoke_decode.sh` expecting full coverage and got a **fourth real gap**,
+this time in the test itself rather than the download script: the header
+comment claimed MultiBypass140 was decoded/checked alongside Cholec80/
+AutoLaparo/HeiChole, but grepping the file showed `check_video_dataset()`
+was only ever called for those three -- MultiBypass140 was silently never
+checked at all, no skip message, nothing. It doesn't fit that function
+anyway (it ships/extracts frames directly, like GraSP, not raw video to
+decode here). Generalized `check_grasp()`'s index-only pattern into
+`check_frames_only()` and wired MultiBypass140 into it.
+
+That needed one more normalization step first, same idea as GraSP's earlier
+symlink fix: MultiBypass140's frames land at `raw/MultiBypass140/datasets/
+MultiBypass140/{StrasBypass70,BernBypass70}/frames/<video_id>/` (two
+separate per-center roots), but `build_index()` needs one flat
+`frames_root/multibypass140/<video_id>/`. `SBP*`/`BBP*` prefixes don't
+collide, so symlinked all 140 video directories from both centers into a
+merged `frames/multibypass140/`. Smoke test then indexed 781,598 frames
+across all 140 videos cleanly.
+
+With all three required datasets (Cholec80, GraSP, MultiBypass140) landed
+and indexed, went through PLAN.md's P1 DoD line item by item rather than
+declaring done from the smoke test alone: `assert_no_video_across_splits`
+passed for all three (no assertion error) -- `assert_no_center_leak` does
+NOT apply to the default split (its own docstring says it's only for the
+separate cross-center generalization cell), so correctly not run there.
+Bumped the earlier ad-hoc 2-3 video spot-checks up to the DoD's specified 5
+videos per dataset, with an explicit monotonicity + within-duration sanity
+check alongside the eyeball: Cholec80 and GraSP both clean; MultiBypass140
+showed overlapping segments on all 5 spot-checked videos at first glance,
+which turned out to be the already-documented OutOfBody/SevereIndex
+auxiliary-label interleaving described in `procedure_graphs/multibypass140.json`'s
+own notes field from earlier P1 work -- confirmed as known real data
+behavior, not a new bug, before moving on. `pytest tests/test_procedure_graph.py`
+(the DoD's explicitly named test) green, 3 passed.
+
+**P1 DoD is now fully met.** `docs/STATUS.md`'s P1 row updated with full
+evidence inline. 8 commits sit on `feat/p01-data` ahead of origin, none
+pushed yet (3 disk-safety/correctness fixes to `multibypass140.sh`, the
+GraSP ontology ground-truthing, the `smoke_decode.sh` MultiBypass140-check
+fix, and 3 STATUS.md updates along the way).
+
+**Next concrete action:** push `feat/p01-data` and open a PR to `main`
+covering all of this session's work (both incidents+fixes to
+`multibypass140.sh`, the GraSP ground-truthing, the smoke test fix); after
+merge, P1 can move to fully `done` in the phase table. AutoLaparo/HeiChole
+were not attempted this session -- PLAN.md's P1 Goal lists them as "as
+available" (optional), not required for DoD, so this is a legitimate stop
+point, not a gap, but a future session could pick them up as a small
+addition if useful before P2/P3 need them.
+
+### 2026-09-15 — smoke_decode.sh green for Cholec80+GraSP; GraSP ontology ground-truthed (real bug caught); third multibypass140.sh bug (silent set -e/pipefail death), fixed, relaunched
 
 Picked up from the previous note's "next concrete action": ran
 `tests/smoke_decode.sh` against the datasets already landed (Cholec80,
