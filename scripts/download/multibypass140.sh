@@ -16,44 +16,80 @@ SCRATCH="${MBP140_SCRATCH:-$HOME/mbp140_scratch}"
 mkdir -p "$SCRATCH"
 note "video scratch: $SCRATCH (HDD)  ->  frames land in: $D/datasets/MultiBypass140/*/frames/ (NVMe)"
 
-extract_one_centre() {
-  # $1 = centre dir name (e.g. StrasBypass70), under both $SCRATCH/datasets/MultiBypass140
-  # and $D/datasets/MultiBypass140.
-  local centre="$1"
-  local vids="$SCRATCH/datasets/MultiBypass140/$centre/videos"
-  local frames="$D/datasets/MultiBypass140/$centre/frames"
-  [ -d "$vids" ] || return 0
-  [ -n "$(find "$vids" -maxdepth 1 -iname '*.mp4' -print -quit 2>/dev/null)" ] || return 0
-
-  mkdir -p "$frames"
-  note "extracting $centre @1fps: $vids -> $frames"
-  if python "$D/util/extract_frames.py" --video_path "$vids" --output "$frames/"; then
-    :
-  else
-    note "extract_frames.py failed for $centre (maybe missing opencv) -> ffmpeg fallback"
-    local v
-    for v in "$vids"/*.mp4 "$vids"/*.MP4; do
-      [ -e "$v" ] || continue
-      local stem; stem="$(basename "${v%.*}")"
-      mkdir -p "$frames/$stem"
-      ffmpeg -nostdin -y -loglevel error -i "$v" \
-        -vf "fps=1,scale='min(896,iw)':-2" -q:v 3 -start_number 0 \
-        "$frames/$stem/%06d.jpg"
-    done
-  fi
-  # Bound peak disk: drop this centre's just-extracted videos before the next zip.
-  rm -f "$vids"/*.mp4 "$vids"/*.MP4 2>/dev/null || true
+# The S3 zips do NOT share one consistent internal layout -- some (observed:
+# multibypass01_corrected.zip) wrap their content in a top-level directory
+# matching the zip's own name (".../multibypass01_corrected/BernBypass70/
+# videos/*.mp4"); others (observed: multibypass04.zip) extract
+# "StrasBypass70/videos/*.mp4" directly with no wrapper. A first version of
+# this script assumed the unwrapped layout everywhere and silently found
+# nothing to process for the wrapped zips -- fixed by matching entries by
+# NAME instead of by assumed path (below).
+#
+# Second, worse bug found live: the *unwrapped* "StrasBypass70/videos/" path
+# is not scoped to one zip -- multiple zips (04 AND 05 both, observed) unzip
+# -n more videos into that SAME persistent directory. The original fix still
+# extracted a whole zip's video payload in one `unzip` call before any
+# per-video processing/cleanup could run, so a large zip (multibypass05 =
+# 128 GB) needed its own compressed size PLUS the full decompressed video
+# batch on disk AT ONCE (~256 GB) before a single byte could be reclaimed --
+# and hit a real disk-full mid-unzip (/home 242 GB free -> 0). Fixed for real
+# this time: extract, convert, and delete ONE video at a time straight out of
+# the zip via `unzip -Z1` + single-entry `unzip`, so peak disk is bounded by
+# (this zip's compressed size) + (one video's decompressed size), never the
+# whole batch. Also resumable -- an entry whose frames dir already has JPEGs
+# is skipped, so a crash mid-zip (or the manual recovery this incident
+# needed) doesn't redo finished work.
+#
+# Third bug found live, same session: this script runs under `set -euo
+# pipefail` (from _common.sh). multibypass03.zip turned out to be a 1.1 MB
+# metadata-only bundle (LICENSE, README, a logo, a hierarchy figure) with
+# ZERO video entries -- not something the "06 = optional IAE labels" comment
+# below anticipated for any zip but 06. `unzip -Z1 | grep -iE '\.mp4$'`
+# legitimately finds nothing for a zip like that, so `grep` exits 1; with
+# `pipefail`, that failure propagates through the pipe into `| while read`,
+# and `set -e` then kills the ENTIRE script on the spot -- with NO error
+# message, since this isn't a "real" error being reported, just `set -e`
+# reacting to a nonzero pipeline exit status. Caught by noticing the launch
+# log and process had both gone silent/dead right after multibypass03.zip's
+# download completed, with no extraction log lines and no error for it.
+# Fixed with `|| true`: a zip with no video entries is a legitimate, expected
+# case (this dataset ships at least two -- 03 and 06), not a failure.
+process_zip_videos() {
+  local zip="$1" entry centre stem frames onevid
+  unzip -Z1 "$zip" 2>/dev/null | { grep -iE '\.mp4$' || true; } | while IFS= read -r entry; do
+    case "$entry" in
+      *[Ss]tras*) centre=StrasBypass70 ;;
+      *[Bb]ern*)  centre=BernBypass70 ;;
+      *) note "unrecognised centre for zip entry $entry -- skipping"; continue ;;
+    esac
+    stem="$(basename "${entry%.*}")"
+    frames="$D/datasets/MultiBypass140/$centre/frames/$stem"
+    if [ -n "$(find "$frames" -maxdepth 1 -iname '*.jpg' -print -quit 2>/dev/null)" ]; then
+      continue    # already extracted in an earlier (interrupted) run -- resumable
+    fi
+    mkdir -p "$frames"
+    unzip -n "$zip" "$entry" -d "$SCRATCH" < /dev/null
+    onevid="$SCRATCH/$entry"
+    [ -e "$onevid" ] || { note "extraction of $entry failed -- skipping"; continue; }
+    note "extracting $centre/$stem @1fps -> $frames"
+    ffmpeg -nostdin -y -loglevel error -i "$onevid" \
+      -vf "fps=1,scale='min(896,iw)':-2" -q:v 3 -start_number 0 \
+      "$frames/%06d.jpg"
+    rm -f "$onevid"   # reclaim this one video's disk before the next entry
+  done
 }
 
 B=https://s3.unistra.fr/camma_public/datasets/MultiBypass140
 # 06 = optional IAE labels (enables SurgGround task T7). Small; keep it.
 for z in multibypass01_corrected multibypass02 multibypass03 multibypass04 multibypass05 multibypass06_corrected; do
   fetch "$B/$z.zip" "$SCRATCH/$z.zip"
-  unzip -n "$SCRATCH/$z.zip" -d "$SCRATCH"
-  rm -f "$SCRATCH/$z.zip"          # delete the zip right after unzip
+  process_zip_videos "$SCRATCH/$z.zip"
+  rm -f "$SCRATCH/$z.zip"          # delete the zip only after every entry is processed
 
-  extract_one_centre StrasBypass70
-  extract_one_centre BernBypass70
+  # Drop any wrapper dirs / non-video files this zip's single-entry unzips
+  # left behind (e.g. the top-level "multibypassNN_corrected/" wrapper) so
+  # scratch starts clean for the next zip.
+  find "$SCRATCH" -mindepth 1 -maxdepth 1 ! -name '*.zip' -exec rm -rf {} + 2>/dev/null || true
 done
 
 rm -rf "$SCRATCH"

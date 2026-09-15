@@ -1,29 +1,35 @@
-"""grasp parser (PLAN.md 7, P1). REAL (P1), timing convention unverified pending download.
+"""grasp parser (PLAN.md 7, P1). REAL (P1), ground-truthed against the shipped
+annotation JSON 2026-09-14 (P1 DoD spot-check, 13 landed videos).
 
 Loads config/data/grasp.yaml. GraSP ships one COCO-style annotation JSON per
-split (schema confirmed by reading `TAPIS/tapis/datasets/surgical_dataset_helper.py`
-in github.com/BCV-Uniandes/GraSP, cloned to inspect 2026-09 -- the actual
-annotation files themselves are gated behind Google Drive and were not
-downloaded here):
-``{"images": [{"id","video_name","frame_num","width","height"}, ...],
+split under `raw/grasp/annotations/`:
+``{"phases_categories": [{"id","name","description"}, ...] (11: 0=Idle..10=
+   Bladder_Neck_Rec), "steps_categories": [...] (21: 0=Idle..20=Clip_Pedicles),
+   "images": [{"id","video_name","frame_num","width","height"}, ...],
    "annotations": [{"image_id","phases","steps","actions","instruments",
                      "bbox", ...}, ...]}``
 ``images[].id`` is the join key for ``annotations[].image_id``; ``phases``/
 ``steps`` are FRAME-level int class ids (duplicated across every instance
 annotation on that frame, since GraSP's `actions`/`instruments` are per-bbox
 region tasks but phases/steps are not -- see ``cfg.ENDOVIS_DATASET.REGION_TASKS
-= [instruments, actions]`` in that repo). This parser reads any one instance
-per frame for phase/step, ignoring the (unused here) bbox/action/instrument
-fields.
+= [instruments, actions]`` in the CAMMA-public/GraSP `TAPIS` repo). This
+parser reads any one instance per frame for phase/step, ignoring the (unused
+here) bbox/action/instrument fields. Graph ids in `procedure_graphs/grasp.json`
+match the shipped categories' own 0-based `id` field directly -- an earlier
+version of this parser added +1 (written before the real categories JSON was
+available, guessing a 1-based numbering); that offset made "Idle" (real id 0,
+in fact the single most common phase label, ~28% of frames) invisible and
+produced a phantom id 11 (really id 10, Bladder_Neck_Rec, shifted). Fixed
+2026-09-14 once the real download landed and this was caught by comparing
+`iter_videos()`' observed id range against `phases_categories`.
 
-**Timing is the one thing NOT independently confirmed**: `frame_num / ann_fps`
-is used here (`ann_fps` from config/data/grasp.yaml, default 1), but the
-dataset's own `Grasp.keyframe_mapping()` in that repo applies a non-trivial
-`round(sec*30/45)` transform for most videos (a handful of special-cased videos
-use `sec` directly) -- meaning `frame_num` may not be a simple per-second index
-for every video. **Verify this against the first 5 downloaded videos as part of
-the P1 DoD spot-check** and fix `_frame_to_t` if `frame_num` turns out to need
-the same transform.
+**Timing, also confirmed**: the shipped `frames/README.txt` states the JPEG
+frames are "sampled at 1 frame per second... assigned a unique 5-digit
+identifier corresponding to its frame number **and its time second**" --
+i.e. `frame_num` IS the second offset by construction for this 1fps release,
+so `_frame_to_t = frame_num / ann_fps` (ann_fps=1) is correct as written. The
+source repo's `round(sec*30/45)` transform referenced in an earlier version
+of this docstring applies to a different (30fps raw) release, not this one.
 """
 from __future__ import annotations
 
@@ -94,7 +100,7 @@ class Parser:
         cur_id, cur_start, last_f = None, 0, 0
         for f, raw_id in ordered:
             last_f = f
-            gid = int(raw_id) + 1  # 0-based COCO category id -> 1-based graph id
+            gid = int(raw_id)  # graph ids match the shipped categories' own 0-based "id" field
             if gid != cur_id:
                 if cur_id is not None:
                     runs.append((cur_id, cur_start, f))
