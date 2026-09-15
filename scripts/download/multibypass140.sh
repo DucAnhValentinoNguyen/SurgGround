@@ -39,9 +39,24 @@ note "video scratch: $SCRATCH (HDD)  ->  frames land in: $D/datasets/MultiBypass
 # whole batch. Also resumable -- an entry whose frames dir already has JPEGs
 # is skipped, so a crash mid-zip (or the manual recovery this incident
 # needed) doesn't redo finished work.
+#
+# Third bug found live, same session: this script runs under `set -euo
+# pipefail` (from _common.sh). multibypass03.zip turned out to be a 1.1 MB
+# metadata-only bundle (LICENSE, README, a logo, a hierarchy figure) with
+# ZERO video entries -- not something the "06 = optional IAE labels" comment
+# below anticipated for any zip but 06. `unzip -Z1 | grep -iE '\.mp4$'`
+# legitimately finds nothing for a zip like that, so `grep` exits 1; with
+# `pipefail`, that failure propagates through the pipe into `| while read`,
+# and `set -e` then kills the ENTIRE script on the spot -- with NO error
+# message, since this isn't a "real" error being reported, just `set -e`
+# reacting to a nonzero pipeline exit status. Caught by noticing the launch
+# log and process had both gone silent/dead right after multibypass03.zip's
+# download completed, with no extraction log lines and no error for it.
+# Fixed with `|| true`: a zip with no video entries is a legitimate, expected
+# case (this dataset ships at least two -- 03 and 06), not a failure.
 process_zip_videos() {
   local zip="$1" entry centre stem frames onevid
-  unzip -Z1 "$zip" 2>/dev/null | grep -iE '\.mp4$' | while IFS= read -r entry; do
+  unzip -Z1 "$zip" 2>/dev/null | { grep -iE '\.mp4$' || true; } | while IFS= read -r entry; do
     case "$entry" in
       *[Ss]tras*) centre=StrasBypass70 ;;
       *[Bb]ern*)  centre=BernBypass70 ;;
