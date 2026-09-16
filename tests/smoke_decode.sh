@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # P1 smoke test (PLAN.md 7, tests/smoke_decode.sh). CPU-only.
 #
-# For each dataset whose raw data has landed, index up to 2 videos: video-shipped
-# sets (Cholec80, CholecT50=Cholec80, AutoLaparo, HeiChole, MultiBypass140) are
-# decoded @1fps and the frame count is checked against ffprobe duration*fps
-# (+/-2); GraSP (frame-shipped) is indexed as-is and checked against its shipped
-# frame count. Datasets whose raw dir isn't present yet are reported and
-# skipped -- not a failure -- so this can run while downloads are mid-flight
-# (P1's multi-hour MultiBypass140 job in particular).
+# For each dataset whose raw data has landed, index up to 2 videos: raw-video
+# sets (Cholec80, CholecT50=Cholec80, AutoLaparo, HeiChole) are decoded @1fps
+# here and the frame count is checked against ffprobe duration*fps (+/-2).
+# GraSP and MultiBypass140 ship (or, for MultiBypass140, extract during their
+# own download script) frames directly -- indexed as-is and checked against
+# the shipped/extracted frame count, no decode step here. Datasets whose raw
+# dir isn't present yet are reported and skipped -- not a failure -- so this
+# can run while downloads are mid-flight (P1's multi-hour MultiBypass140 job
+# in particular). Was missing an actual MultiBypass140 check entirely despite
+# this comment claiming coverage -- fixed 2026-09-15 (P1 DoD), see
+# check_frames_only() below and docs/STATUS.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/env_4090.sh >/dev/null
@@ -75,10 +79,29 @@ def check_grasp():
           f"{len(set(t.column('video_id').to_pylist()))} videos -> {idx}")
 
 
+def check_frames_only(name, raw_marker):
+    """Index-only check for datasets whose own download script already
+    extracted frames (MultiBypass140's multibypass140.sh; unlike Cholec80/
+    AutoLaparo/HeiChole, which ship raw video and are decoded above)."""
+    global any_tested
+    normalized = frames_root / name
+    if not normalized.is_dir():
+        print(f"[smoke_decode] {name}: no normalized frame dir yet ({normalized}) -- skip"
+              f" (raw present: {raw_marker.exists()})")
+        return
+    any_tested = True
+    idx = build_index(frames_root, name, ann_fps=1.0)
+    import pyarrow.parquet as pq
+    t = pq.read_table(idx)
+    print(f"[smoke_decode] {name}: indexed {t.num_rows} frames across "
+          f"{len(set(t.column('video_id').to_pylist()))} videos -> {idx}")
+
+
 check_video_dataset("cholec80", data_root / "raw" / "cholec80" / "videos", fps=1)
 check_video_dataset("autolaparo", data_root / "raw" / "autolaparo" / "videos", fps=1)
 check_video_dataset("heichole", data_root / "raw" / "heichole" / "videos", fps=1)
 check_grasp()
+check_frames_only("multibypass140", data_root / "raw" / "MultiBypass140")
 
 if not any_tested:
     print("[smoke_decode] nothing to test yet -- no raw datasets have landed on this box.")

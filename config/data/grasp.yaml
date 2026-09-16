@@ -3,26 +3,70 @@ domain: robotic                # da Vinci — visually distinct from the laparos
 center: uniandes
 role: primary_long_headline   # 13 videos, ~149 min avg (up to ~4 h). The hard headline.
 native: frames                # ships sampled frames (~1 fps) + JSON ; no re-decode
-ann_fps: 1                     # verify in P1 (phases/steps dense ; atomic actions ~1 keyframe/35 s)
-# Counts (11 phases / 21 steps / 14 atomic actions / 7 instrument types) are
-# confirmed from github.com/BCV-Uniandes/GraSP Images/dataset.jpg + TAPIS's
-# TASKS.NUM_CLASSES; exact NAMES are best-effort (standard RARP breakdown) and
-# unverified -- see procedure_graphs/grasp.json `_verify_p1`. Re-fill once
-# grasp.sh's shipped JSON `categories` field is on disk.
-phase_names:                   # 11, best-effort -- see _verify_p1 above
-  - TrocarPlacementAndDocking
-  - PelvicLymphadenectomy
-  - BladderNeckDissection
-  - SeminalVesicleDissection
-  - PosteriorDissection
-  - EndopelvicFasciaIncision
-  - ApicalDissection
-  - UrethralDivision
-  - NeurovascularBundlePreservation
-  - PosteriorAnastomosis
-  - AnteriorAnastomosis
-step_names: TODO_P1           # 21 ; not modeled -- no offline source, needs the shipped JSON
-atomic_action_names: TODO_P1  # 14 ; ditto
+ann_fps: 1                     # confirmed P1 2026-09-14: frames/README.txt states frame_num IS the second offset at this 1fps release
+# All names below are GROUND-TRUTHED 2026-09-14 against the real shipped
+# `phases_categories`/`steps_categories`/`categories`/`actions_categories`
+# fields in raw/grasp/annotations/*.json (13 landed videos) -- not the
+# earlier literature guess (see git history / procedure_graphs/grasp.json's
+# notes field for the full story, including a real parser bug this caught:
+# grasp.py had a stale +1 id offset written before these names were known).
+phase_names:                   # 11 (0=Idle .. 10), ids match phases_categories directly
+  - Idle
+  - LPIL
+  - RPIL
+  - Retzius_Space
+  - Dorsal_Venous_Complex
+  - Id_Bladder_Neck
+  - Seminal_Vesicles
+  - Denonvilliers_Fascia
+  - Pedicle_Control
+  - Severing_Prostate_Urethra
+  - Bladder_Neck_Rec
+step_names:                    # 21 (0=Idle .. 20), ids match steps_categories directly; precedence not modeled yet
+  - Idle
+  - Id_Illiac_Vein_Artery
+  - Dissection_Illiac_Lymph_Nodes
+  - Dissection_Obturator_Lymph_Nodes
+  - Pack_Lymph_Nodes
+  - Prevessical_Dissection
+  - Ligation_Dorsal_Venous_Complex
+  - Prostate_Dissection
+  - Seminal_Vessicle_Dissection
+  - Denon_Dissection
+  - Cut_Prostate
+  - Hold_Prostate
+  - Pack_Prostate
+  - Pass_Suture_Urethra
+  - Pass_Suture_Neck
+  - Pull_Suture
+  - Tie_Suture
+  - Suction
+  - Cut
+  - Cut_Bladder
+  - Clip_Pedicles
+atomic_action_names:           # 14 (1-indexed in the shipped JSON's own `actions_categories`)
+  - Cauterize
+  - Close
+  - Cut
+  - Grasp
+  - Hold
+  - Open
+  - Open Something
+  - Pull
+  - Push
+  - Release
+  - Still
+  - Suction
+  - Travel
+  - Other
+instrument_names:               # 7 (1-indexed in the shipped JSON's own `categories`)
+  - Bipolar Forceps
+  - Prograsp Forceps
+  - Large Needle Driver
+  - Monopolar Curved Scissors
+  - Suction Instrument
+  - Clip Applier
+  - Laparoscopic Grasper
 phase_graph: procedure_graphs/grasp.json
 split: { scheme: by_video, train: 8, val: 2, test: 3 }   # tiny -> report per-video + bootstrap CIs
 never_pool_with: [cholec80, autolaparo, multibypass140, heichole, cholect50]   # domain tag; report separately
